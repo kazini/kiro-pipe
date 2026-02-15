@@ -29,6 +29,13 @@ import argparse
 import time
 from pathlib import Path
 
+# Optional: psutil for network detection
+try:
+    import psutil
+    HAS_PSUTIL = True
+except ImportError:
+    HAS_PSUTIL = False
+
 # Color codes for terminal output
 class Colors:
     HEADER = '\033[95m'
@@ -267,6 +274,41 @@ class FridaKiroAttacher:
         
         return True
 
+    def check_network_connections(self, pid):
+        """Check if a PID has active network connections (requires psutil)"""
+        if not HAS_PSUTIL:
+            return None, []
+        
+        try:
+            proc = psutil.Process(pid)
+            # Use net_connections() instead of deprecated connections()
+            try:
+                connections = proc.net_connections()
+            except:
+                connections = proc.connections()  # Fallback for older psutil
+            
+            # Look for AWS connections
+            aws_connections = []
+            for conn in connections:
+                if hasattr(conn, 'raddr') and conn.raddr:
+                    ip = conn.raddr.ip
+                    port = conn.raddr.port
+                    
+                    # Check if it's an AWS IP (common patterns)
+                    if port == 443:  # HTTPS
+                        try:
+                            import socket
+                            hostname = socket.gethostbyaddr(ip)[0]
+                            if 'amazonaws.com' in hostname or 'aws.com' in hostname or 'kiro.dev' in hostname:
+                                aws_connections.append((ip, port, hostname))
+                        except:
+                            # Can't resolve, but still note the connection
+                            aws_connections.append((ip, port, 'unknown'))
+            
+            return len(connections), aws_connections
+        except:
+            return None, []
+
     def monitor_child_processes(self, hook_code):
         """Monitor for new Kiro child processes and auto-inject hooks"""
         try:
@@ -275,7 +317,23 @@ class FridaKiroAttacher:
             
             for proc in kiro_processes:
                 if proc.pid not in self.monitored_pids:
-                    print(f"{Colors.GREEN}[NEW PROCESS] PID {proc.pid}: {proc.name}{Colors.ENDC}")
+                    # Check network connections BEFORE attempting to attach
+                    conn_count, aws_conns = self.check_network_connections(proc.pid)
+                    
+                    network_info = ""
+                    if conn_count is not None:
+                        if aws_conns:
+                            network_info = f" [🌐 {len(aws_conns)} AWS connection(s)]"
+                        elif conn_count > 0:
+                            network_info = f" [🔌 {conn_count} connection(s)]"
+                    
+                    print(f"{Colors.GREEN}[NEW PROCESS] PID {proc.pid}: {proc.name}{network_info}{Colors.ENDC}")
+                    
+                    # Show AWS connections if found
+                    if aws_conns:
+                        for ip, port, hostname in aws_conns:
+                            print(f"{Colors.CYAN}  🎯 AWS: {hostname} ({ip}:{port}){Colors.ENDC}")
+                    
                     self.monitored_pids.add(proc.pid)
                     
                     # Try to attach to new process
@@ -289,23 +347,63 @@ class FridaKiroAttacher:
                         # Store session to prevent cleanup
                         self.child_sessions.append((child_session, child_script))
                         
-                        print(f"{Colors.GREEN}  ✓ Hooks injected into PID {proc.pid}{Colors.ENDC}")
+                        hook_status = "✓ Hooks injected"
+                        if aws_conns:
+                            hook_status += " [⚡ NETWORK PROCESS HOOKED!]"
+                        print(f"{Colors.GREEN}  {hook_status} into PID {proc.pid}{Colors.ENDC}")
+                        
                     except Exception as e:
-                        print(f"{Colors.RED}  ✗ Failed to attach to PID {proc.pid}: {e}{Colors.ENDC}")
+                        error_msg = f"✗ Failed to attach to PID {proc.pid}: {e}"
+                        if aws_conns:
+                            error_msg += f"\n{Colors.RED}  ⚠️  WARNING: This process has AWS connections but refused hooks!{Colors.ENDC}"
+                        print(f"{Colors.RED}  {error_msg}{Colors.ENDC}")
+                        
         except Exception as e:
             # Ignore enumeration errors
             pass
 
     def run_spawn_interactive(self, hook_code):
         """Keep script running and monitor for child processes"""
+        if not HAS_PSUTIL:
+            print(f"\n{Colors.YELLOW}⚠️  psutil not installed - network detection disabled{Colors.ENDC}")
+            print(f"{Colors.YELLOW}   Install with: pip install psutil{Colors.ENDC}\n")
+        
         try:
             while True:
                 time.sleep(2)
                 self.monitor_child_processes(hook_code)
         except KeyboardInterrupt:
             print(f"\n\n{Colors.YELLOW}Stopping Frida interception...{Colors.ENDC}")
+            self.print_summary()
             self.cleanup()
             print(f"{Colors.GREEN}Detached successfully{Colors.ENDC}")
+    
+    def print_summary(self):
+        """Print summary of hooked processes and network status"""
+        print(f"\n{Colors.BOLD}{'='*60}")
+        print(f"SESSION SUMMARY")
+        print(f"{'='*60}{Colors.ENDC}")
+        
+        print(f"\n{Colors.CYAN}Monitored PIDs: {len(self.monitored_pids)}{Colors.ENDC}")
+        print(f"{Colors.GREEN}Successfully hooked: {len(self.child_sessions) + (1 if self.session else 0)}{Colors.ENDC}")
+        print(f"{Colors.RED}Refused hooks: {len(self.monitored_pids) - len(self.child_sessions) - (1 if self.session else 0)}{Colors.ENDC}")
+        
+        if HAS_PSUTIL:
+            print(f"\n{Colors.CYAN}Network Analysis:{Colors.ENDC}")
+            aws_pids = []
+            for pid in self.monitored_pids:
+                conn_count, aws_conns = self.check_network_connections(pid)
+                if aws_conns:
+                    aws_pids.append(pid)
+                    hooked = any(s[0].pid == pid for s in self.child_sessions) or (self.session and self.session.pid == pid)
+                    status = f"{Colors.GREEN}✓ HOOKED{Colors.ENDC}" if hooked else f"{Colors.RED}✗ REFUSED{Colors.ENDC}"
+                    print(f"  PID {pid}: {len(aws_conns)} AWS connection(s) - {status}")
+            
+            if not aws_pids:
+                print(f"  {Colors.YELLOW}No AWS connections detected{Colors.ENDC}")
+                print(f"  {Colors.YELLOW}Try using Kiro's AI features to trigger API calls{Colors.ENDC}")
+        
+        print(f"\n{Colors.BOLD}{'='*60}{Colors.ENDC}\n")
 
     def cleanup(self):
         """Clean up Frida resources"""
