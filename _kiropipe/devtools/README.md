@@ -113,6 +113,144 @@ Testing Request/Response Translators
 
 ---
 
+### `test_bridge_config.py`
+**Purpose**: Test bridge server configuration loading
+
+**What it does**:
+- Loads YAML configuration
+- Tests model lookup (names and aliases)
+- Tests provider configuration
+- Tests API base and key extraction
+- Tests LiteLLM sub-provider config
+
+**Use cases**:
+- Verifying config file syntax
+- Testing custom endpoint configuration
+- Debugging provider setup
+- Validating model aliases
+
+**Usage**:
+```bash
+python test_bridge_config.py
+```
+
+**Example output**:
+```
+Testing bridge server configuration...
+
+[OK] Config loaded successfully
+
+Testing model lookup:
+  ✓ 'kiro-default' -> kiro-default (kiro)
+  ✓ 'kiro' -> kiro-default (kiro)
+  ✓ 'default' -> kiro-default (kiro)
+
+Testing provider config:
+  ✓ kiro:
+    Type: passthrough
+    API Base: Not set
+    API Key: Not set
+
+Testing LiteLLM sub-providers:
+  ✓ ollama:
+    API Base: http://localhost:11434
+    API Key: Not set
+
+[OK] All tests passed!
+```
+
+---
+
+### `test_config_robustness.py`
+**Purpose**: Test configuration error handling and fallback to defaults
+
+**What it does**:
+- Tests valid config loading
+- Tests missing config file handling
+- Tests broken YAML syntax handling
+- Tests empty config file handling
+- Tests partial config (missing sections)
+- Tests invalid YAML structure
+- Tests None config path
+- Verifies hardcoded defaults are used as fallback
+
+**Use cases**:
+- Verifying error handling
+- Testing config validation
+- Ensuring graceful degradation
+- Validating default values
+
+**Usage**:
+```bash
+python test_config_robustness.py
+```
+
+**Example output**:
+```
+============================================================
+Configuration Robustness Tests
+============================================================
+Test 1: Valid config file
+------------------------------------------------------------
+  ✓ Valid config loaded successfully
+  ✓ Debug mode is False by default
+  ✓ All defaults correct
+
+Test 3: Broken YAML syntax
+------------------------------------------------------------
+[Config] ERROR: Invalid YAML syntax
+[Config]   Line 6, Column 12
+[Config]   mapping values are not allowed here
+[Config] Using defaults
+  ✓ Broken YAML handled gracefully
+  ✓ Error message displayed
+  ✓ Hardcoded defaults used
+
+============================================================
+Results: 7 passed, 0 failed
+============================================================
+
+✓ All tests passed!
+```
+
+---
+
+### `test_quiet_mode.py`
+**Purpose**: Verify quiet mode configuration
+
+**What it does**:
+- Checks debug mode setting
+- Explains mitmproxy behavior
+- Shows how to change debug mode
+
+**Use cases**:
+- Verifying quiet mode is working
+- Understanding debug mode behavior
+- Checking current configuration
+
+**Usage**:
+```bash
+python test_quiet_mode.py
+```
+
+**Example output**:
+```
+Testing quiet mode configuration...
+
+Debug mode: False
+
+✓ Debug mode DISABLED (quiet mode)
+  - mitmproxy will run with -q flag (quiet)
+  - Only essential messages will be shown
+  - No verbose request/response logging
+
+To change debug mode:
+  Edit _kiropipe/kiropipe_config.yaml
+  Set debug.debug_mode_enabled: true/false
+```
+
+---
+
 ## Message Injection Tools
 
 ### `text_to_stream.py`

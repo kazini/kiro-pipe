@@ -18,26 +18,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from engine.request_translator import translate_to_anthropic, translate_to_openai
 from engine.response_translator import translate_anthropic_stream, translate_openai_stream
+from engine.config_loader import load_config
 
 # ============================================================
 # CONFIGURATION
 # ============================================================
-BRIDGE_CONFIG = {
-    'backend': 'litellm',  # 'anthropic', 'openai', or 'litellm'
-    'model': 'ollama/llama3.2',
-    'api_key': None,  # Set via environment or config
-    'api_base': None,  # Optional custom base URL
-    'max_tokens': 4096,
-    'debug': True,
-}
-
-# LiteLLM configuration (if using LiteLLM)
-LITELLM_CONFIG = {
-    'enabled': True,
-    'model': 'ollama/llama3.2',
-    'api_base': 'http://localhost:11434',
-    'api_key': None,
-}
+# Load config from YAML
+CONFIG = None  # Will be loaded on startup
 
 # Session tracking
 SESSION_STATS = {
@@ -52,15 +39,22 @@ SESSION_STATS = {
 app = FastAPI(title="Kiro API Bridge", version="1.0.0")
 
 
-def call_anthropic_api(request_body: Dict[str, Any]) -> Any:
-    """Call Anthropic API"""
+def call_anthropic_api(request_body: Dict[str, Any], api_base: Optional[str] = None, api_key: Optional[str] = None) -> Any:
+    """Call Anthropic API with custom endpoint support"""
     import anthropic
     
-    api_key = BRIDGE_CONFIG.get('api_key') or os.environ.get('ANTHROPIC_API_KEY')
+    # Get API key
+    if not api_key:
+        api_key = os.environ.get('ANTHROPIC_API_KEY')
     if not api_key:
         raise ValueError("Anthropic API key not configured. Set 'api_key' in config or ANTHROPIC_API_KEY environment variable.")
     
-    client = anthropic.Anthropic(api_key=api_key)
+    # Create client with custom base URL if provided
+    client_kwargs = {'api_key': api_key}
+    if api_base:
+        client_kwargs['base_url'] = api_base
+    
+    client = anthropic.Anthropic(**client_kwargs)
     
     # Make streaming request
     with client.messages.stream(
@@ -110,15 +104,22 @@ def call_anthropic_api(request_body: Dict[str, Any]) -> Any:
                 yield event_dict
 
 
-def call_openai_api(request_body: Dict[str, Any]) -> Any:
-    """Call OpenAI API"""
+def call_openai_api(request_body: Dict[str, Any], api_base: Optional[str] = None, api_key: Optional[str] = None) -> Any:
+    """Call OpenAI API with custom endpoint support"""
     from openai import OpenAI
     
-    api_key = BRIDGE_CONFIG.get('api_key') or os.environ.get('OPENAI_API_KEY')
+    # Get API key
+    if not api_key:
+        api_key = os.environ.get('OPENAI_API_KEY')
     if not api_key:
         raise ValueError("OpenAI API key not configured. Set 'api_key' in config or OPENAI_API_KEY environment variable.")
     
-    client = OpenAI(api_key=api_key)
+    # Create client with custom base URL if provided
+    client_kwargs = {'api_key': api_key}
+    if api_base:
+        client_kwargs['base_url'] = api_base
+    
+    client = OpenAI(**client_kwargs)
     
     # Make streaming request
     stream = client.chat.completions.create(
@@ -134,15 +135,13 @@ def call_openai_api(request_body: Dict[str, Any]) -> Any:
         yield json.loads(chunk.model_dump_json())
 
 
-def call_litellm_api(request_body: Dict[str, Any]) -> Any:
-    """Call LiteLLM (universal LLM interface)"""
+def call_litellm_api(request_body: Dict[str, Any], model: str, api_base: Optional[str] = None, api_key: Optional[str] = None) -> Any:
+    """Call LiteLLM (universal LLM interface) with custom endpoint support"""
     from litellm import completion
     
-    # Get API key from config or environment
-    api_key = LITELLM_CONFIG.get('api_key')
+    # Get API key from parameter or environment
     if not api_key:
         # Try environment variables based on model
-        model = LITELLM_CONFIG['model']
         if 'groq' in model.lower():
             api_key = os.environ.get('GROQ_API_KEY')
         elif 'openai' in model.lower():
@@ -152,11 +151,11 @@ def call_litellm_api(request_body: Dict[str, Any]) -> Any:
         # Ollama doesn't need API key
     
     response = completion(
-        model=LITELLM_CONFIG['model'],
+        model=model,
         messages=request_body['messages'],
         tools=request_body.get('tools'),
         stream=True,
-        api_base=LITELLM_CONFIG.get('api_base'),
+        api_base=api_base,
         api_key=api_key,
         max_tokens=request_body['max_tokens']
     )
@@ -171,7 +170,29 @@ def call_litellm_api(request_body: Dict[str, Any]) -> Any:
 
 async def generate_aws_stream(aws_request: Dict[str, Any], conversation_id: str = None) -> bytes:
     """Generate AWS Event Stream response from AWS Q request"""
-    backend = BRIDGE_CONFIG['backend']
+    global CONFIG
+    
+    if not CONFIG:
+        raise ValueError("Configuration not loaded")
+    
+    # Get model from request or use default
+    requested_model = aws_request.get('model', CONFIG.get_default_model())
+    
+    # Look up model info
+    model_info = CONFIG.get_model_info(requested_model)
+    if not model_info:
+        raise ValueError(f"Unknown model: {requested_model}")
+    
+    provider_name = model_info['provider']
+    model_config = model_info['model']
+    provider_config = CONFIG.get_provider_config(provider_name)
+    
+    if not provider_config or not provider_config.get('enabled', False):
+        raise ValueError(f"Provider '{provider_name}' is not enabled")
+    
+    provider_type = provider_config.get('type')
+    model_name = model_config.get('name')
+    max_tokens = model_config.get('max_tokens', 4096)
     
     # Track session
     if conversation_id:
@@ -186,66 +207,101 @@ async def generate_aws_stream(aws_request: Dict[str, Any], conversation_id: str 
     
     SESSION_STATS['total_requests'] += 1
     
-    if BRIDGE_CONFIG['debug']:
-        print(f"\n[Bridge] Backend: {backend}")
-        print(f"[Bridge] Model: {BRIDGE_CONFIG['model']}")
+    debug_mode = CONFIG.get('debug.debug_mode_enabled', False)
+    
+    if debug_mode:
+        print(f"\n[Bridge] Provider: {provider_name} ({provider_type})")
+        print(f"[Bridge] Model: {model_name}")
         if conversation_id:
             print(f"[Bridge] Conversation ID: {conversation_id}")
             print(f"[Bridge] Session requests: {SESSION_STATS['sessions'][conversation_id]['requests']}")
     
-    # Track usage for this request
-    request_input_tokens = 0
-    request_output_tokens = 0
+    # Handle passthrough (Kiro default models)
+    if provider_type == 'passthrough':
+        raise ValueError("Passthrough models should not reach the bridge server")
     
-    # Translate request based on backend
-    if backend == 'anthropic' or (backend == 'litellm' and 'claude' in LITELLM_CONFIG['model']):
+    # Translate request based on provider type
+    if provider_type == 'anthropic':
         translated_request = translate_to_anthropic(
             aws_request,
-            model=BRIDGE_CONFIG['model'],
-            max_tokens=BRIDGE_CONFIG['max_tokens']
+            model=model_name,
+            max_tokens=max_tokens
         )
         
-        if BRIDGE_CONFIG['debug']:
+        if debug_mode:
             print(f"[Bridge] Translated to Anthropic format")
             print(f"[Bridge] Messages: {len(translated_request['messages'])}")
             if translated_request.get('tools'):
                 print(f"[Bridge] Tools: {len(translated_request['tools'])}")
         
-        # Call API
-        if backend == 'anthropic':
-            response_stream = call_anthropic_api(translated_request)
-        else:
-            response_stream = call_litellm_api(translated_request)
+        # Get API credentials
+        api_base = CONFIG.get_api_base(provider_name)
+        api_key = CONFIG.get_api_key(provider_name)
         
-        # Translate response to AWS Event Stream and track usage
+        # Call API
+        response_stream = call_anthropic_api(translated_request, api_base, api_key)
+        
+        # Translate response to AWS Event Stream
         for chunk in translate_anthropic_stream(response_stream):
             yield chunk
     
-    elif backend == 'openai' or backend == 'litellm':
-        translated_request = translate_to_openai(
-            aws_request,
-            model=BRIDGE_CONFIG['model'] if backend == 'openai' else LITELLM_CONFIG['model'],
-            max_tokens=BRIDGE_CONFIG['max_tokens']
-        )
+    elif provider_type == 'litellm':
+        # For LiteLLM, determine sub-provider from model name
+        sub_provider = None
+        if 'ollama/' in model_name:
+            sub_provider = 'ollama'
+        elif 'groq/' in model_name:
+            sub_provider = 'groq'
+        elif 'openai/' in model_name:
+            sub_provider = 'openai'
+        elif 'openrouter/' in model_name:
+            sub_provider = 'openrouter'
         
-        if BRIDGE_CONFIG['debug']:
-            print(f"[Bridge] Translated to OpenAI format")
-            print(f"[Bridge] Messages: {len(translated_request['messages'])}")
-            if translated_request.get('tools'):
-                print(f"[Bridge] Tools: {len(translated_request['tools'])}")
+        # Get API credentials for sub-provider
+        api_base = CONFIG.get_api_base(provider_name, sub_provider)
+        api_key = CONFIG.get_api_key(provider_name, sub_provider)
         
-        # Call API
-        if backend == 'openai':
-            response_stream = call_openai_api(translated_request)
+        # Check if model uses Anthropic format (Claude models)
+        if 'claude' in model_name.lower():
+            translated_request = translate_to_anthropic(
+                aws_request,
+                model=model_name,
+                max_tokens=max_tokens
+            )
+            
+            if debug_mode:
+                print(f"[Bridge] Translated to Anthropic format (via LiteLLM)")
+                print(f"[Bridge] Messages: {len(translated_request['messages'])}")
+                if translated_request.get('tools'):
+                    print(f"[Bridge] Tools: {len(translated_request['tools'])}")
+            
+            response_stream = call_litellm_api(translated_request, model_name, api_base, api_key)
+            
+            # Translate response to AWS Event Stream
+            for chunk in translate_anthropic_stream(response_stream):
+                yield chunk
         else:
-            response_stream = call_litellm_api(translated_request)
-        
-        # Translate response to AWS Event Stream
-        for chunk in translate_openai_stream(response_stream):
-            yield chunk
+            # Use OpenAI format for other models
+            translated_request = translate_to_openai(
+                aws_request,
+                model=model_name,
+                max_tokens=max_tokens
+            )
+            
+            if debug_mode:
+                print(f"[Bridge] Translated to OpenAI format (via LiteLLM)")
+                print(f"[Bridge] Messages: {len(translated_request['messages'])}")
+                if translated_request.get('tools'):
+                    print(f"[Bridge] Tools: {len(translated_request['tools'])}")
+            
+            response_stream = call_litellm_api(translated_request, model_name, api_base, api_key)
+            
+            # Translate response to AWS Event Stream
+            for chunk in translate_openai_stream(response_stream):
+                yield chunk
     
     else:
-        raise ValueError(f"Unknown backend: {backend}")
+        raise ValueError(f"Unknown provider type: {provider_type}")
 
 
 @app.post("/generateAssistantResponse")
@@ -306,11 +362,15 @@ async def generate_assistant_response(request: Request):
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
+    global CONFIG
+    
+    if not CONFIG:
+        return {'status': 'error', 'message': 'Configuration not loaded'}
+    
     return {
         'status': 'ok',
-        'backend': BRIDGE_CONFIG['backend'],
-        'model': BRIDGE_CONFIG['model'],
-        'litellm_enabled': LITELLM_CONFIG['enabled'],
+        'enabled_providers': CONFIG.get_enabled_providers(),
+        'default_model': CONFIG.get_default_model(),
         'stats': {
             'total_requests': SESSION_STATS['total_requests'],
             'total_tokens': SESSION_STATS['total_tokens'],
@@ -322,17 +382,24 @@ async def health_check():
 @app.get("/config")
 async def get_config():
     """Get current configuration (without sensitive data)"""
+    global CONFIG
+    
+    if not CONFIG:
+        return {'error': 'Configuration not loaded'}
+    
     return {
-        'backend': BRIDGE_CONFIG['backend'],
-        'model': BRIDGE_CONFIG['model'],
-        'max_tokens': BRIDGE_CONFIG['max_tokens'],
-        'api_key_configured': bool(BRIDGE_CONFIG.get('api_key')),
-        'litellm': {
-            'enabled': LITELLM_CONFIG['enabled'],
-            'model': LITELLM_CONFIG['model'],
-            'api_base': LITELLM_CONFIG['api_base'],
-            'api_key_configured': bool(LITELLM_CONFIG.get('api_key'))
-        }
+        'enabled_providers': CONFIG.get_enabled_providers(),
+        'default_model': CONFIG.get_default_model(),
+        'available_models': [
+            {
+                'name': m['name'],
+                'provider': m['provider'],
+                'aliases': m['aliases'],
+                'description': m['description']
+            }
+            for m in CONFIG.get_all_models()
+        ],
+        'debug_mode': CONFIG.get('debug.debug_mode_enabled', False)
     }
 
 
@@ -356,54 +423,23 @@ async def get_stats():
     }
 
 
-def load_config_from_file(config_path: str = '_kiropipe/kiropipe_config.json'):
-    """Load configuration from JSON file"""
-    config_file = Path(__file__).parent.parent / 'kiropipe_config.json'
-    
-    if config_file.exists():
-        try:
-            with open(config_file, 'r') as f:
-                config = json.load(f)
-            
-            # Update BRIDGE_CONFIG
-            if 'bridge' in config:
-                BRIDGE_CONFIG.update(config['bridge'])
-            
-            # Update LITELLM_CONFIG
-            if 'litellm' in config:
-                LITELLM_CONFIG.update(config['litellm'])
-            
-            print(f"[Bridge] Loaded configuration from {config_file}")
-            
-            # Validate configuration
-            if BRIDGE_CONFIG['backend'] == 'anthropic' and not BRIDGE_CONFIG.get('api_key') and not os.environ.get('ANTHROPIC_API_KEY'):
-                print(f"[Bridge] WARNING: Anthropic backend selected but no API key configured")
-            elif BRIDGE_CONFIG['backend'] == 'openai' and not BRIDGE_CONFIG.get('api_key') and not os.environ.get('OPENAI_API_KEY'):
-                print(f"[Bridge] WARNING: OpenAI backend selected but no API key configured")
-            elif BRIDGE_CONFIG['backend'] == 'litellm':
-                model = LITELLM_CONFIG['model']
-                if 'groq' in model.lower() and not LITELLM_CONFIG.get('api_key') and not os.environ.get('GROQ_API_KEY'):
-                    print(f"[Bridge] WARNING: Groq model selected but no API key configured")
-                elif 'ollama' in model.lower():
-                    print(f"[Bridge] Using Ollama (no API key needed)")
-            
-            return True
-        except Exception as e:
-            print(f"[Bridge] Warning: Failed to load config: {e}")
-    else:
-        print(f"[Bridge] No config file found at {config_file}")
-        print(f"[Bridge] Using default configuration (Ollama)")
-        print(f"[Bridge] To customize, copy kiropipe_config.json.example to kiropipe_config.json")
-    
-    return False
-
-
 if __name__ == '__main__':
     import os
     from pathlib import Path
     
-    # Load config from file if exists
-    load_config_from_file()
+    # Load config from YAML
+    print("\n" + "="*60)
+    print("Kiro API Bridge Server")
+    print("="*60)
+    
+    CONFIG = load_config()
+    
+    if not CONFIG:
+        print("\n[ERROR] Failed to load configuration")
+        sys.exit(1)
+    
+    # Print config summary
+    CONFIG.print_summary()
     
     # Get port from environment or find a free one
     port = int(os.environ.get('BRIDGE_PORT', 0))
@@ -418,36 +454,6 @@ if __name__ == '__main__':
     port_file = Path(__file__).parent.parent / 'debug_logs' / '.server_port'
     port_file.parent.mkdir(parents=True, exist_ok=True)
     port_file.write_text(str(port))
-    
-    print("\n" + "="*60)
-    print("Kiro API Bridge Server")
-    print("="*60)
-    print(f"\nConfiguration:")
-    print(f"  - Backend: {BRIDGE_CONFIG['backend']}")
-    print(f"  - Model: {BRIDGE_CONFIG['model']}")
-    print(f"  - Max tokens: {BRIDGE_CONFIG['max_tokens']}")
-    print(f"  - Debug mode: {BRIDGE_CONFIG['debug']}")
-    
-    # Show API key status
-    if BRIDGE_CONFIG['backend'] == 'anthropic':
-        api_key = BRIDGE_CONFIG.get('api_key') or os.environ.get('ANTHROPIC_API_KEY')
-        print(f"  - API key: {'✓ Configured' if api_key else '✗ Not configured'}")
-    elif BRIDGE_CONFIG['backend'] == 'openai':
-        api_key = BRIDGE_CONFIG.get('api_key') or os.environ.get('OPENAI_API_KEY')
-        print(f"  - API key: {'✓ Configured' if api_key else '✗ Not configured'}")
-    
-    if LITELLM_CONFIG['enabled']:
-        print(f"\nLiteLLM:")
-        print(f"  - Model: {LITELLM_CONFIG['model']}")
-        print(f"  - API base: {LITELLM_CONFIG['api_base']}")
-        
-        # Check API key for cloud providers
-        model = LITELLM_CONFIG['model']
-        if 'groq' in model.lower():
-            api_key = LITELLM_CONFIG.get('api_key') or os.environ.get('GROQ_API_KEY')
-            print(f"  - API key: {'✓ Configured' if api_key else '✗ Not configured (required for Groq)'}")
-        elif 'ollama' in model.lower():
-            print(f"  - API key: Not required (local Ollama)")
     
     print(f"\nEndpoints:")
     print(f"  - POST http://localhost:{port}/generateAssistantResponse")

@@ -318,6 +318,62 @@ Every request includes full history (200+ items). This is why requests are 500KB
 
 ---
 
+## Phase 11: Custom Endpoint Support
+
+### Problem
+Users needed to use custom API endpoints:
+- OpenRouter (OpenAI-compatible aggregator)
+- Together AI (OpenAI-compatible)
+- Custom proxies and deployments
+- Self-hosted API servers
+
+### Solution
+Added `api_base` field to ALL providers in configuration.
+
+**Configuration Structure**:
+```yaml
+providers:
+  anthropic:
+    api_base: "https://api.anthropic.com"  # Or custom proxy
+    api_key: null
+  
+  litellm:
+    ollama:
+      api_base: "http://localhost:11434"
+    groq:
+      api_base: "https://api.groq.com/openai/v1"
+    openai:
+      api_base: "https://api.openai.com/v1"  # Or OpenRouter
+    openrouter:
+      api_base: "https://openrouter.ai/api/v1"
+```
+
+### Implementation
+**Config Loader Updates**:
+- `get_api_base(provider, sub_provider)` - Extract endpoint URL
+- `get_api_key(provider, sub_provider)` - Extract API key
+- Support for nested sub-providers (LiteLLM)
+
+**Bridge Server Updates**:
+- Removed hardcoded `BRIDGE_CONFIG` and `LITELLM_CONFIG`
+- Load config via `config_loader.load_config()`
+- Pass `api_base` and `api_key` to API clients
+- Dynamic provider/model selection from config
+
+**API Client Updates**:
+- `call_anthropic_api()` - Accepts `api_base` parameter
+- `call_openai_api()` - Accepts `api_base` parameter
+- `call_litellm_api()` - Accepts `api_base` parameter
+- All clients use custom endpoints when provided
+
+### Benefits
+- Use any OpenAI-compatible API (OpenRouter, Together AI, etc.)
+- Custom Anthropic proxies and deployments
+- Self-hosted models with compatible APIs
+- No code changes needed - just config
+
+---
+
 ## Current Status
 
 ### Production Ready

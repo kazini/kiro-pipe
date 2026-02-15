@@ -33,7 +33,7 @@ DEFAULT_CONFIG = {
         'force_toggle_usage_limits': None
     },
     'debug': {
-        'debug_mode_enabled': True,
+        'debug_mode_enabled': False,
         'store_interaction_blocks': False
     },
     'providers': {
@@ -59,32 +59,68 @@ class Config:
     
     def __init__(self, config_path: Optional[Path] = None):
         self.config_path = config_path
-        self.config = DEFAULT_CONFIG.copy()
+        # Always start with defaults
+        self.config = self._deep_copy(DEFAULT_CONFIG)
         self.model_map = {}  # name/alias -> provider, model
         
         if config_path and config_path.exists():
             self.load_from_file(config_path)
+        elif config_path:
+            print(f"[Config] Config file not found: {config_path}")
+            print(f"[Config] Using defaults")
         else:
             print(f"[Config] No config file found, using defaults")
         
         self.build_model_map()
     
+    def _deep_copy(self, obj):
+        """Deep copy a dictionary"""
+        if isinstance(obj, dict):
+            return {k: self._deep_copy(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._deep_copy(item) for item in obj]
+        else:
+            return obj
+    
     def load_from_file(self, config_path: Path):
-        """Load configuration from YAML file"""
+        """Load configuration from YAML file with robust error handling"""
         try:
-            with open(config_path, 'r') as f:
+            with open(config_path, 'r', encoding='utf-8') as f:
                 file_config = yaml.safe_load(f)
             
             if not file_config:
                 print(f"[Config] Empty config file, using defaults")
                 return
             
+            # Validate YAML structure
+            if not isinstance(file_config, dict):
+                print(f"[Config] ERROR: Config file must contain a YAML dictionary")
+                print(f"[Config] Using defaults")
+                return
+            
             # Deep merge with defaults
             self._deep_merge(self.config, file_config)
             print(f"[Config] Loaded from {config_path}")
             
+        except yaml.YAMLError as e:
+            print(f"[Config] ERROR: Invalid YAML syntax in {config_path}")
+            if hasattr(e, 'problem_mark'):
+                mark = e.problem_mark
+                print(f"[Config]   Line {mark.line + 1}, Column {mark.column + 1}")
+            if hasattr(e, 'problem'):
+                print(f"[Config]   {e.problem}")
+            if hasattr(e, 'context'):
+                print(f"[Config]   {e.context}")
+            print(f"[Config] Using defaults")
+            print(f"\n[Config] TIP: Validate your YAML at https://www.yamllint.com/")
+        except FileNotFoundError:
+            print(f"[Config] Config file not found: {config_path}")
+            print(f"[Config] Using defaults")
+        except PermissionError:
+            print(f"[Config] ERROR: Permission denied reading {config_path}")
+            print(f"[Config] Using defaults")
         except Exception as e:
-            print(f"[Config] Error loading config: {e}")
+            print(f"[Config] ERROR: Failed to load config: {e}")
             print(f"[Config] Using defaults")
     
     def _deep_merge(self, base: Dict, override: Dict):
@@ -134,6 +170,52 @@ class Config:
     def get_provider_config(self, provider_name: str) -> Optional[Dict[str, Any]]:
         """Get provider configuration"""
         return self.config.get('providers', {}).get(provider_name)
+    
+    def get_api_base(self, provider_name: str, sub_provider: Optional[str] = None) -> Optional[str]:
+        """
+        Get api_base for a provider or sub-provider
+        
+        Args:
+            provider_name: Main provider (e.g., 'anthropic', 'litellm')
+            sub_provider: Sub-provider for litellm (e.g., 'ollama', 'groq', 'openai')
+        
+        Returns:
+            api_base URL or None
+        """
+        provider_config = self.get_provider_config(provider_name)
+        if not provider_config:
+            return None
+        
+        # For litellm, check sub-provider first
+        if provider_name == 'litellm' and sub_provider:
+            sub_config = provider_config.get(sub_provider, {})
+            return sub_config.get('api_base')
+        
+        # For direct providers (anthropic, etc.)
+        return provider_config.get('api_base')
+    
+    def get_api_key(self, provider_name: str, sub_provider: Optional[str] = None) -> Optional[str]:
+        """
+        Get api_key for a provider or sub-provider
+        
+        Args:
+            provider_name: Main provider (e.g., 'anthropic', 'litellm')
+            sub_provider: Sub-provider for litellm (e.g., 'ollama', 'groq', 'openai')
+        
+        Returns:
+            api_key or None
+        """
+        provider_config = self.get_provider_config(provider_name)
+        if not provider_config:
+            return None
+        
+        # For litellm, check sub-provider first
+        if provider_name == 'litellm' and sub_provider:
+            sub_config = provider_config.get(sub_provider, {})
+            return sub_config.get('api_key')
+        
+        # For direct providers (anthropic, etc.)
+        return provider_config.get('api_key')
     
     def is_kiro_model(self, model_identifier: str) -> bool:
         """Check if model is a Kiro passthrough model"""

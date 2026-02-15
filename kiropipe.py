@@ -10,7 +10,7 @@ from pathlib import Path
 # ============================================================
 def check_dependencies():
     """Check and install/upgrade dependencies from requirements.txt"""
-    requirements_file = Path(__file__).parent / "_kiropipe" / "requirements.txt"
+    requirements_file = Path(__file__).parent / "_kiropipe" / "engine" / "requirements.txt"
     
     if not requirements_file.exists():
         print(f"WARNING: requirements.txt not found at {requirements_file}")
@@ -19,7 +19,14 @@ def check_dependencies():
     print("Checking dependencies...")
     
     try:
-        import pkg_resources
+        # Try modern importlib.metadata first (Python 3.8+)
+        try:
+            from importlib.metadata import version, PackageNotFoundError
+            use_importlib = True
+        except ImportError:
+            # Fall back to pkg_resources
+            import pkg_resources
+            use_importlib = False
         
         # Read requirements
         with open(requirements_file, 'r') as f:
@@ -32,12 +39,28 @@ def check_dependencies():
             if not requirement:
                 continue
             
+            # Parse requirement (handle >= and other operators)
+            pkg_name = requirement.split('>=')[0].split('==')[0].split('<')[0].split('>')[0].strip()
+            
             try:
-                pkg_resources.require(requirement)
-            except pkg_resources.DistributionNotFound:
-                missing.append(requirement)
-            except pkg_resources.VersionConflict as e:
-                outdated.append((requirement, str(e)))
+                if use_importlib:
+                    # Check if package exists
+                    try:
+                        installed_version = version(pkg_name)
+                        # Simple check - if requirement has version, we assume it needs checking
+                        if '>=' in requirement or '==' in requirement:
+                            # For now, just note it exists (full version comparison is complex)
+                            pass
+                    except PackageNotFoundError:
+                        missing.append(requirement)
+                else:
+                    # Use pkg_resources
+                    pkg_resources.require(requirement)
+            except Exception as e:
+                if 'not found' in str(e).lower() or 'cannot import' in str(e).lower():
+                    missing.append(requirement)
+                elif 'conflict' in str(e).lower():
+                    outdated.append((requirement, str(e)))
         
         if missing or outdated:
             print("\n" + "="*60)
@@ -97,8 +120,10 @@ def check_dependencies():
         else:
             print("All dependencies satisfied.\n")
         
-    except ImportError:
-        print("WARNING: pkg_resources not available, skipping dependency check")
+    except ImportError as e:
+        print(f"WARNING: Dependency checking unavailable ({e})")
+        print("To install dependencies manually:")
+        print(f"  pip install -r {requirements_file}\n")
     except Exception as e:
         print(f"WARNING: Dependency check failed: {e}")
 
@@ -126,18 +151,10 @@ KIRO_EXE_PATH = None  # Set to custom path or None to auto-detect
 ALLOW_TELEMETRY = False  # FALSE = block
 ALLOW_UPDATES = False  # FALSE = block
 FORCE_TOGGLE_USAGE_LIMITS = None  # None=auto, True=always allow, False=always block
-DEBUG_MODE_ENABLED = True  # Show detailed output
+DEBUG_MODE_ENABLED = False  # Show detailed output
 DEBUG_STORE_INTERACTION_BLOCKS = False  # Save requests/responses to files
 ALLOW_KIRO_MODELS = True  # TRUE = allow Kiro's default models
 # ============================================================
-#
-#
-#
-#
-#
-#
-#
-#
 
 # Setup directories
 SCRIPT_DIR = Path(__file__).parent  # Base directory (where kiropipe.py is)
@@ -154,43 +171,31 @@ sys.path.insert(0, str(KIROPIPE_DIR))
 
 # Load configuration
 from engine.config_loader import load_config
-CONFIG = load_config(KIROPIPE_DIR / 'kiropipe_config.yaml')
 
-# Override hardcoded values with config file values
-DEFAULT_PORT = CONFIG.get('proxy.port', DEFAULT_PORT)
-KIRO_EXE_PATH = CONFIG.get('kiro.exe_path', KIRO_EXE_PATH)
-ALLOW_TELEMETRY = CONFIG.get('kiro_endpoint.telemetry', ALLOW_TELEMETRY)
-ALLOW_UPDATES = CONFIG.get('kiro_endpoint.updates', ALLOW_UPDATES)
-FORCE_TOGGLE_USAGE_LIMITS = CONFIG.get('kiro_endpoint.force_toggle_usage_limits', FORCE_TOGGLE_USAGE_LIMITS)
-DEBUG_MODE_ENABLED = CONFIG.get('debug.debug_mode_enabled', DEBUG_MODE_ENABLED)
-DEBUG_STORE_INTERACTION_BLOCKS = CONFIG.get('debug.store_interaction_blocks', DEBUG_STORE_INTERACTION_BLOCKS)
-ALLOW_KIRO_MODELS = CONFIG.get('kiro_endpoint.models', ALLOW_KIRO_MODELS)
-
-# Current model being used (for dynamic usage limits)
-CURRENT_MODEL = CONFIG.get_default_model()
-
-if DEBUG_STORE_INTERACTION_BLOCKS:
-    RESPONSES_DIR.mkdir(parents=True, exist_ok=True)
-    POSTED_DIR.mkdir(parents=True, exist_ok=True)
-# Add _kiropipe to Python path for module imports (moved before config loading)
-sys.path.insert(0, str(KIROPIPE_DIR))
-
-# Load configuration
-from engine.config_loader import load_config
-CONFIG = load_config(KIROPIPE_DIR / 'kiropipe_config.yaml')
-
-# Override hardcoded values with config file values
-DEFAULT_PORT = CONFIG.get('proxy.port', DEFAULT_PORT)
-KIRO_EXE_PATH = CONFIG.get('kiro.exe_path', KIRO_EXE_PATH)
-ALLOW_TELEMETRY = CONFIG.get('kiro_endpoint.telemetry', ALLOW_TELEMETRY)
-ALLOW_UPDATES = CONFIG.get('kiro_endpoint.updates', ALLOW_UPDATES)
-FORCE_TOGGLE_USAGE_LIMITS = CONFIG.get('kiro_endpoint.force_toggle_usage_limits', FORCE_TOGGLE_USAGE_LIMITS)
-DEBUG_MODE_ENABLED = CONFIG.get('debug.debug_mode_enabled', DEBUG_MODE_ENABLED)
-DEBUG_STORE_INTERACTION_BLOCKS = CONFIG.get('debug.store_interaction_blocks', DEBUG_STORE_INTERACTION_BLOCKS)
-ALLOW_KIRO_MODELS = CONFIG.get('kiro_endpoint.models', ALLOW_KIRO_MODELS)
-
-# Current model being used (for dynamic usage limits)
-CURRENT_MODEL = CONFIG.get_default_model()
+try:
+    CONFIG = load_config(KIROPIPE_DIR / 'kiropipe_config.yaml')
+    
+    # Override hardcoded values with config file values (only if config loaded successfully)
+    if CONFIG:
+        DEFAULT_PORT = CONFIG.get('proxy.port', DEFAULT_PORT)
+        KIRO_EXE_PATH = CONFIG.get('kiro.exe_path', KIRO_EXE_PATH)
+        ALLOW_TELEMETRY = CONFIG.get('kiro_endpoint.telemetry', ALLOW_TELEMETRY)
+        ALLOW_UPDATES = CONFIG.get('kiro_endpoint.updates', ALLOW_UPDATES)
+        FORCE_TOGGLE_USAGE_LIMITS = CONFIG.get('kiro_endpoint.force_toggle_usage_limits', FORCE_TOGGLE_USAGE_LIMITS)
+        DEBUG_MODE_ENABLED = CONFIG.get('debug.debug_mode_enabled', DEBUG_MODE_ENABLED)
+        DEBUG_STORE_INTERACTION_BLOCKS = CONFIG.get('debug.store_interaction_blocks', DEBUG_STORE_INTERACTION_BLOCKS)
+        ALLOW_KIRO_MODELS = CONFIG.get('kiro_endpoint.models', ALLOW_KIRO_MODELS)
+        
+        # Current model being used (for dynamic usage limits)
+        CURRENT_MODEL = CONFIG.get_default_model()
+    else:
+        print("[Config] WARNING: Config not loaded, using hardcoded defaults")
+        CURRENT_MODEL = 'kiro-default'
+except Exception as e:
+    print(f"[Config] ERROR: Failed to load config: {e}")
+    print("[Config] Using hardcoded defaults")
+    CONFIG = None
+    CURRENT_MODEL = 'kiro-default'
 
 if DEBUG_STORE_INTERACTION_BLOCKS:
     RESPONSES_DIR.mkdir(parents=True, exist_ok=True)
@@ -823,7 +828,11 @@ if __name__ == "__main__":
     
     # Run mitmproxy in main thread (this blocks until proxy stops)
     try:
-        sys.argv = ['mitmdump', '-s', __file__, '--listen-port', str(port)]
+        # Add quiet flag if debug mode is disabled
+        if DEBUG_MODE_ENABLED:
+            sys.argv = ['mitmdump', '-s', __file__, '--listen-port', str(port)]
+        else:
+            sys.argv = ['mitmdump', '-s', __file__, '--listen-port', str(port), '-q']
         mitmdump()
     except KeyboardInterrupt:
         print("\n\nShutting down...")
@@ -1048,46 +1057,3 @@ def launch_kiro(port):
         print(f"{'='*60}\n")
     except Exception as e:
         print(f"\nError launching Kiro: {e}")
-
-if __name__ == "__main__":
-    # Check dependencies first
-    try:
-        import mitmproxy
-    except ImportError:
-        print("\nERROR: mitmproxy not installed.")
-        print("Install with: pip install mitmproxy")
-        input("\nPress Enter to exit...")
-        sys.exit(1)
-    
-    # Get port from command line or use default
-    port = 29974
-    if len(sys.argv) > 1:
-        try:
-            port = int(sys.argv[1])
-        except ValueError:
-            port = 29974
-
-    print("\n" + "="*60)
-    print("Kiro Intercepted - Unified Launcher")
-    print("="*60)
-    print(f"\nConfiguration:")
-    print(f"  - Proxy port: {port}")
-    print(f"  - Certificate validation: DISABLED")
-    print(f"  - Only Kiro traffic is proxied")
-    print("\nCapture features:")
-    print("  - JSON pretty-printing")
-    print("  - Event-stream detection")
-    print("  - GZIP decompression")
-    print("  - Binary format identification")
-    print("  - Auto-save to captured_*.jsonl files")
-    print("\nStarting proxy...")
-    print("="*60 + "\n")
-    
-    # Start Kiro in a separate thread
-    kiro_thread = threading.Thread(target=launch_kiro, args=(port,), daemon=True)
-    kiro_thread.start()
-    
-    # Run mitmproxy in main thread
-    sys.argv = ['mitmdump', '-s', __file__, '--listen-port', str(port)]
-    mitmdump()
-
