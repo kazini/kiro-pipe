@@ -236,8 +236,6 @@ class KiroInterceptor:
         self.custom_model_ids = set()  # Track our custom model IDs
         self.model_is_kiro = True  # Track if current model is Kiro's
         self.start_time = time.time()  # Track when proxy started
-        self.custom_model_ids = set()  # Track our custom model IDs
-        self.model_is_kiro = True  # Track if current model is Kiro's
 
     def request(self, flow: http.HTTPFlow) -> None:
         """Intercept all requests"""
@@ -254,7 +252,7 @@ class KiroInterceptor:
             )
             return
         
-        # Block update checks if not allowed
+        # Block update checks if not allowed (GET requests)
         if not ALLOW_UPDATES and 'metadata-win32' in flow.request.path:
             if DEBUG_MODE_ENABLED:
                 print(f"\n{Fore.RED} [BLOCKED UPDATE CHECK]{Style.RESET_ALL} {Style.DIM}{flow.request.pretty_url}{Style.RESET_ALL}")
@@ -264,6 +262,34 @@ class KiroInterceptor:
                 {"Content-Type": "application/json"}
             )
             return
+        
+        # Block update POST requests if not allowed
+        if not ALLOW_UPDATES and flow.request.method == 'POST':
+            # Check for update-related endpoints
+            if 'update' in flow.request.path.lower() or 'metadata' in flow.request.path.lower():
+                if DEBUG_MODE_ENABLED:
+                    print(f"\n{Fore.RED} [BLOCKED UPDATE POST]{Style.RESET_ALL} {Style.DIM}{flow.request.pretty_url}{Style.RESET_ALL}")
+                    print(f"  {Fore.CYAN}Method:{Style.RESET_ALL} {flow.request.method}")
+                flow.response = http.Response.make(
+                    200,
+                    b'{"status":"ok"}',
+                    {"Content-Type": "application/json"}
+                )
+                return
+        
+        # Block metrics POST requests if not allowed
+        if not ALLOW_TELEMETRY and flow.request.method == 'POST':
+            # Check for metrics-related endpoints
+            if 'metric' in flow.request.path.lower() or 'metering' in flow.request.path.lower():
+                if DEBUG_MODE_ENABLED:
+                    print(f"\n{Fore.RED} [BLOCKED METRICS POST]{Style.RESET_ALL} {Style.DIM}{flow.request.pretty_url}{Style.RESET_ALL}")
+                    print(f"  {Fore.CYAN}Method:{Style.RESET_ALL} {flow.request.method}")
+                flow.response = http.Response.make(
+                    200,
+                    b'{"status":"ok"}',
+                    {"Content-Type": "application/json"}
+                )
+                return
         
         # Dynamic usage limits blocking (block when custom models are available OR within first 5 seconds)
         # Note: This is called before model selection, so we check if ANY custom models exist
@@ -327,60 +353,127 @@ class KiroInterceptor:
             )
             return
         
-        # Route to custom provider if not using Kiro passthrough
+        # Detect model selection and route to custom provider if needed
         if 'generateAssistantResponse' in flow.request.path:
-            model_info = CONFIG.get_model_info(self.current_model)
+            if DEBUG_MODE_ENABLED:
+                print(f"\n{Fore.MAGENTA}[DEBUG] Routing code reached for generateAssistantResponse{Style.RESET_ALL}")
             
-            if model_info and model_info['provider'] != 'kiro':
-                # Forward to custom provider
-                provider_name = model_info['provider']
-                provider_config = CONFIG.get_provider_config(provider_name)
+            # Step 1: Parse request to determine which model is being used
+            selected_model = None
+            try:
+                body = json.loads(flow.request.text)
+                # Model ID is nested in conversationState.currentMessage.userInputMessage
+                selected_model = (
+                    body.get('conversationState', {})
+                    .get('currentMessage', {})
+                    .get('userInputMessage', {})
+                    .get('modelId')
+                )
+                if DEBUG_MODE_ENABLED:
+                    print(f"{Fore.MAGENTA}[DEBUG] Parsed model from request: {selected_model}{Style.RESET_ALL}")
+            except Exception as e:
+                if DEBUG_MODE_ENABLED:
+                    print(f"{Fore.RED}[ERROR] Failed to parse request body: {e}{Style.RESET_ALL}")
+            
+            # Step 2: If we found a model, update tracking and check if we need to route
+            if selected_model:
+                if DEBUG_MODE_ENABLED:
+                    print(f"{Fore.MAGENTA}[DEBUG] Model found, updating tracking{Style.RESET_ALL}")
+                
+                # Update current model tracking
+                old_model = self.current_model
+                self.current_model = selected_model
+                self.model_is_kiro = selected_model in self.kiro_model_ids
+                
+                if DEBUG_MODE_ENABLED and selected_model != old_model:
+                    model_type = "Kiro" if self.model_is_kiro else "Custom"
+                    print(f"{Fore.CYAN}[MODEL SELECTED] {selected_model} ({model_type}){Style.RESET_ALL}")
+                
+                # Step 3: Check if this model needs custom routing
+                model_info = CONFIG.get_model_info(selected_model)
                 
                 if DEBUG_MODE_ENABLED:
-                    print(f"\n{Fore.CYAN} [CUSTOM PROVIDER]{Style.RESET_ALL} Routing to {Fore.GREEN}{provider_name}{Style.RESET_ALL}")
-                    print(f"  {Fore.CYAN}Model:{Style.RESET_ALL} {model_info['model']['name']}")
+                    print(f"{Fore.YELLOW}[ROUTING CHECK] Model: {selected_model}{Style.RESET_ALL}")
+                    print(f"{Fore.YELLOW}[ROUTING CHECK] Model info from config: {model_info}{Style.RESET_ALL}")
+                    print(f"{Fore.YELLOW}[ROUTING CHECK] Provider: {model_info['provider'] if model_info else 'None'}{Style.RESET_ALL}")
                 
-                try:
-                    import httpx
+                # Step 4: Route to custom provider if not Kiro
+                if model_info and model_info['provider'] != 'kiro':
+                    # Direct API call to custom provider (no bridge needed)
+                    provider_name = model_info['provider']
+                    provider_config = CONFIG.get_provider_config(provider_name)
                     
-                    # Get bridge URL from provider config or use default
-                    bridge_url = provider_config.get('bridge_url', 'http://localhost:8000')
-                    
-                    # Forward request to bridge with streaming
-                    with httpx.Client(timeout=300.0) as client:
-                        bridge_response = client.post(
-                            f"{bridge_url}/generateAssistantResponse",
-                            content=flow.request.content,
-                            headers={
-                                'Content-Type': 'application/json',
-                                'X-Model': self.current_model  # Pass model to bridge
-                            }
-                        )
-                        
-                        # Create response with bridge data
-                        flow.response = http.Response.make(
-                            bridge_response.status_code,
-                            bridge_response.content,
-                            dict(bridge_response.headers)
-                        )
-                        
-                        if DEBUG_MODE_ENABLED:
-                            print(f"{Fore.GREEN} [CUSTOM PROVIDER]{Style.RESET_ALL} Response received: {Fore.CYAN}{bridge_response.status_code}{Style.RESET_ALL} ({Fore.YELLOW}{len(bridge_response.content)} bytes{Style.RESET_ALL})")
-                        
-                        return
-                    
-                except Exception as e:
                     if DEBUG_MODE_ENABLED:
-                        print(f"{Fore.RED} [CUSTOM PROVIDER] Error: {e}{Style.RESET_ALL}")
-                        import traceback
-                        traceback.print_exc()
+                        print(f"\n{Fore.CYAN} [CUSTOM PROVIDER]{Style.RESET_ALL} Routing to {Fore.GREEN}{provider_name}{Style.RESET_ALL}")
+                        print(f"  {Fore.CYAN}Model:{Style.RESET_ALL} {model_info['model']['name']}")
                     
-                    # Return error response
-                    flow.response = http.Response.make(
-                        503,
-                        json.dumps({'error': f'Custom provider error: {str(e)}'}).encode(),
-                        {"Content-Type": "application/json"}
-                    )
+                    try:
+                        import httpx
+                        
+                        # Parse AWS request
+                        aws_body = json.loads(flow.request.text)
+                        
+                        # Get user message from AWS format
+                        user_message = aws_body.get('conversationState', {}).get('currentMessage', {}).get('userInputMessage', {}).get('content', '')
+                        
+                        if provider_name == 'anthropic':
+                            # Transform to Anthropic format
+                            api_base = provider_config.get('api_base', 'https://api.anthropic.com/v1')
+                            api_key = provider_config.get('api_key')
+                            
+                            if not api_key:
+                                raise Exception("Anthropic API key not configured")
+                            
+                            anthropic_request = {
+                                "model": self.current_model,
+                                "max_tokens": 4096,
+                                "messages": [
+                                    {"role": "user", "content": user_message}
+                                ],
+                                "stream": True
+                            }
+                            
+                            # Call Anthropic API
+                            with httpx.Client(timeout=300.0) as client:
+                                response = client.post(
+                                    f"{api_base}/messages",
+                                    json=anthropic_request,
+                                    headers={
+                                        "x-api-key": api_key,
+                                        "anthropic-version": "2023-06-01",
+                                        "content-type": "application/json"
+                                    }
+                                )
+                                
+                                if DEBUG_MODE_ENABLED:
+                                    print(f"{Fore.GREEN} [ANTHROPIC]{Style.RESET_ALL} Response: {Fore.CYAN}{response.status_code}{Style.RESET_ALL}")
+                                
+                                # For now, just return the raw response
+                                # TODO: Transform Anthropic response to AWS format
+                                flow.response = http.Response.make(
+                                    response.status_code,
+                                    response.content,
+                                    dict(response.headers)
+                                )
+                                return
+                        
+                        else:
+                            # Other providers not yet implemented
+                            raise Exception(f"Provider {provider_name} not yet implemented")
+                        
+                    except Exception as e:
+                        if DEBUG_MODE_ENABLED:
+                            print(f"{Fore.RED} [CUSTOM PROVIDER] Error: {e}{Style.RESET_ALL}")
+                            import traceback
+                            traceback.print_exc()
+                        
+                        # Return error response
+                        flow.response = http.Response.make(
+                            503,
+                            json.dumps({'error': f'Custom provider error: {str(e)}'}).encode(),
+                            {"Content-Type": "application/json"}
+                        )
+                        return
                     return
         
         # Check for injected responses (no flag needed - just check if queue exists)
@@ -436,22 +529,6 @@ class KiroInterceptor:
                 # Fall through to normal AWS Q request if injection fails
                 pass
         
-        # Detect model selection in generateAssistantResponse requests
-        if 'generateAssistantResponse' in flow.request.path:
-            try:
-                body = json.loads(flow.request.text)
-                selected_model = body.get('modelId') or body.get('model')
-                
-                if selected_model and selected_model != self.current_model:
-                    self.current_model = selected_model
-                    self.model_is_kiro = selected_model in self.kiro_model_ids
-                    
-                    if DEBUG_MODE_ENABLED:
-                        model_type = "Kiro" if self.model_is_kiro else "Custom"
-                        print(f"{Fore.CYAN}[MODEL SELECTED] {selected_model} ({model_type}){Style.RESET_ALL}")
-            except:
-                pass
-
         # Check if it's an AWS Q request
         if 'amazonaws.com' in flow.request.pretty_host or 'kiro.dev' in flow.request.pretty_host:
             self.aws_requests.append({
@@ -569,7 +646,8 @@ class KiroInterceptor:
 
                             for model in models:
                                 model_id = model.get('name', 'unknown')
-                                model_name = model.get('alias', [model.get('name', 'Unknown')])[0] if model.get('alias') else model.get('name', 'Unknown')
+                                # Use display_name if provided, otherwise fall back to first alias or name
+                                model_name = model.get('display_name') or (model.get('alias', [model.get('name', 'Unknown')])[0] if model.get('alias') else model.get('name', 'Unknown'))
 
                                 custom_model = {
                                     "modelId": model_id,
@@ -580,8 +658,8 @@ class KiroInterceptor:
                                         "minimumTokensPerCacheCheckpoint": 1024,
                                         "supportsPromptCaching": True
                                     }),
-                                    "rateMultiplier": provider_name.upper(),  # Provider name in uppercase
-                                    "rateUnit": 0,  # Set to 0 for config models
+                                    "rateMultiplier": None,  # null for config models
+                                    "rateUnit": provider_name.upper(),  # Provider name in uppercase
                                     "supportedInputTypes": ["TEXT", "IMAGE"],
                                     "tokenLimits": template_model.get('tokenLimits', {
                                         "maxInputTokens": 200000,
