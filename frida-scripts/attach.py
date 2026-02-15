@@ -1,0 +1,232 @@
+#!/usr/bin/env python3
+"""
+Frida Attachment Script for Kiro Application
+================================================
+
+Purpose: Attach Frida to running Kiro process and inject hooks for:
+1. Certificate validation bypass
+2. HTTPS request interception and logging
+3. Request redirection to localhost:8888
+
+Usage:
+    python attach.py --hook combined      # Use all hooks
+    python attach.py --hook cert-only     # Only certificate bypass
+    python attach.py --hook logger        # Only request logging
+    python attach.py --hook redirect      # Only request redirection
+    python attach.py --list               # List running processes
+"""
+
+import frida
+import sys
+import os
+import argparse
+import time
+from pathlib import Path
+
+# Color codes for terminal output
+class Colors:
+    HEADER = '\033[95m'
+    BLUE = '\033[94m'
+    CYAN = '\033[96m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+
+class FridaKiroAttacher:
+    def __init__(self, target_process="Kiro"):
+        self.target_process = target_process
+        self.device = frida.get_local_device()
+        self.session = None
+        self.script = None
+        self.hooks_dir = Path(__file__).parent
+
+    def find_process(self):
+        """Find Kiro process in running processes"""
+        processes = self.device.enumerate_processes()
+        
+        for process in processes:
+            if self.target_process.lower() in process.name.lower():
+                print(f"{Colors.GREEN}✓ Found process: {process.name} (PID: {process.pid}){Colors.ENDC}")
+                return process.pid
+        
+        print(f"{Colors.RED}✗ Could not find process: {self.target_process}{Colors.ENDC}")
+        return None
+
+    def list_processes(self):
+        """List all running processes"""
+        processes = self.device.enumerate_processes()
+        print(f"\n{Colors.BOLD}Running Processes:{Colors.ENDC}")
+        print("-" * 60)
+        
+        for proc in processes:
+            print(f"  {proc.name:<40} (PID: {proc.pid:>6})")
+
+    def load_hook(self, hook_name):
+        """Load hook script from file"""
+        hook_file = self.hooks_dir / f"{hook_name}.js"
+        
+        if not hook_file.exists():
+            print(f"{Colors.RED}✗ Hook file not found: {hook_file}{Colors.ENDC}")
+            return None
+        
+        try:
+            with open(hook_file, 'r', encoding='utf-8') as f:
+                script_code = f.read()
+            print(f"{Colors.GREEN}✓ Loaded hook: {hook_name}{Colors.ENDC}")
+            return script_code
+        except Exception as e:
+            print(f"{Colors.RED}✗ Error loading hook {hook_name}: {e}{Colors.ENDC}")
+            return None
+
+    def on_message(self, message, data):
+        """Handle messages from Frida script"""
+        try:
+            if message['type'] == 'send':
+                payload = message.get('payload', '')
+                
+                # Color code different message types
+                if 'ERROR' in str(payload):
+                    print(f"{Colors.RED}[ERROR] {payload}{Colors.ENDC}")
+                elif 'SUCCESS' in str(payload):
+                    print(f"{Colors.GREEN}[SUCCESS] {payload}{Colors.ENDC}")
+                elif 'TLS' in str(payload):
+                    print(f"{Colors.CYAN}[TLS] {payload}{Colors.ENDC}")
+                elif 'API' in str(payload):
+                    print(f"{Colors.YELLOW}[API] {payload}{Colors.ENDC}")
+                else:
+                    print(payload)
+            elif message['type'] == 'error':
+                print(f"{Colors.RED}[FRIDA ERROR] {message.get('description', 'Unknown error')}{Colors.ENDC}")
+                if message.get('stack'):
+                    print(f"Stack: {message['stack']}")
+        except Exception as e:
+            print(f"{Colors.RED}Error processing message: {e}{Colors.ENDC}")
+
+    def attach_and_inject(self, hook_type="combined"):
+        """Main attachment and injection flow"""
+        
+        print(f"\n{Colors.BOLD}🔧 Frida Kiro Interception Setup{Colors.ENDC}")
+        print(f"{Colors.BOLD}{'=' * 60}{Colors.ENDC}\n")
+        
+        # Step 1: Find process
+        print(f"{Colors.BLUE}[Step 1/4] Finding Kiro process...{Colors.ENDC}")
+        pid = self.find_process()
+        if not pid:
+            print(f"{Colors.RED}Cannot proceed without target process{Colors.ENDC}")
+            return False
+        
+        # Step 2: Load hook script
+        print(f"\n{Colors.BLUE}[Step 2/4] Loading {hook_type} hook script...{Colors.ENDC}")
+        hook_script = self.load_hook(hook_type)
+        if not hook_script:
+            return False
+        
+        # Step 3: Attach to process
+        print(f"\n{Colors.BLUE}[Step 3/4] Attaching to process (PID: {pid})...{Colors.ENDC}")
+        try:
+            self.session = self.device.attach(pid)
+            print(f"{Colors.GREEN}✓ Attached successfully{Colors.ENDC}")
+        except Exception as e:
+            print(f"{Colors.RED}✗ Failed to attach: {e}{Colors.ENDC}")
+            return False
+        
+        # Step 4: Create and load script
+        print(f"\n{Colors.BLUE}[Step 4/4] Injecting hooks...{Colors.ENDC}")
+        try:
+            self.script = self.session.create_script(hook_script)
+            self.script.on('message', self.on_message)
+            self.script.load()
+            print(f"{Colors.GREEN}✓ Hooks injected successfully{Colors.ENDC}")
+        except Exception as e:
+            print(f"{Colors.RED}✗ Failed to inject: {e}{Colors.ENDC}")
+            if self.session:
+                self.session.detach()
+            return False
+        
+        print(f"\n{Colors.GREEN}{Colors.BOLD}{'=' * 60}")
+        print(f"✓ FRIDA INTERCEPTION ACTIVE")
+        print(f"{'=' * 60}{Colors.ENDC}\n")
+        
+        print(f"{Colors.CYAN}Monitoring for API calls...")
+        print(f"Press Ctrl+C to stop{Colors.ENDC}\n")
+        
+        return True
+
+    def run_interactive(self):
+        """Keep script running and monitor for messages"""
+        try:
+            while True:
+                time.sleep(0.1)
+        except KeyboardInterrupt:
+            print(f"\n\n{Colors.YELLOW}Stopping Frida interception...{Colors.ENDC}")
+            self.cleanup()
+            print(f"{Colors.GREEN}Detached successfully{Colors.ENDC}")
+
+    def cleanup(self):
+        """Clean up Frida resources"""
+        if self.script:
+            try:
+                self.script.unload()
+            except:
+                pass
+        
+        if self.session:
+            try:
+                self.session.detach()
+            except:
+                pass
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Frida interception script for Kiro application',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s --hook combined          # All interception hooks
+  %(prog)s --hook cert-only         # Only certificate bypass
+  %(prog)s --hook logger            # Only request logging
+  %(prog)s --hook redirect          # Only hostname redirect
+  %(prog)s --list                   # List running processes
+        """
+    )
+    
+    parser.add_argument('--hook', 
+                       default='combined',
+                       choices=['combined', 'cert-only', 'logger', 'redirect', 'debug_logger'],
+                       help='Which hook set to inject (default: combined)')
+    parser.add_argument('--list', 
+                       action='store_true',
+                       help='List running processes and exit')
+    parser.add_argument('--process',
+                       default='Kiro',
+                       help='Process name to attach to (default: Kiro)')
+    
+    args = parser.parse_args()
+    
+    attacher = FridaKiroAttacher(target_process=args.process)
+    
+    if args.list:
+        attacher.list_processes()
+        return 0
+    
+    # Map hook arguments to file names
+    hook_map = {
+        'combined': 'combined',
+        'cert-only': 'certificate_bypass',
+        'logger': 'request_logger',
+        'redirect': 'request_redirect',
+        'debug_logger': 'debug_logger'
+    }
+    
+    hook_file = hook_map.get(args.hook, 'combined')
+    
+    if attacher.attach_and_inject(hook_type=hook_file):
+        attacher.run_interactive()
+        return 0
+    else:
+        return 1
+
+if __name__ == '__main__':
+    sys.exit(main())
