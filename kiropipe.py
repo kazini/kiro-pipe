@@ -10,7 +10,7 @@ import json
 import threading
 
 """
-KiroPipe || Proxies Kiro and enables custom LLM API use.
+KiroPipe || Proxies Kiro and enables custom API use.
 > Uses _kiropipe folder.
 Usage: python kiropipe.py [port]
 Default port: 29974
@@ -83,73 +83,6 @@ class KiroInterceptor:
             )
             return
         
-        # Blocll_process_on_port(proxy_port)
-        except Exception as e:
-            print(f"Error terminating mitmproxy: {e}")
-    
-    print("Cleanup complete.")
-    print("="*60 + "\n")
-
-
-# Register cleanup handler
-atexit.register(cleanup)
-
-
-# Normalize configuration values
-BLOCK_TELEMETRY = normalize_bool(BLOCK_TELEMETRY)
-BLOCK_UPDATES = normalize_bool(BLOCK_UPDATES)
-BLOCK_USAGE_LIMITS = normalize_bool(BLOCK_USAGE_LIMITS)
-DEBUG_MODE = normalize_bool(DEBUG_MODE)
-
-# Setup directories
-
-KIROPIPE_DIR = SCRIPT_DIR / "_kiropipe"
-DEBUG_DIR = KIROPIPE_DIR / "debug_logs" / "interactions"
-RESPONSES_DIR = DEBUG_DIR / "responses"
-POSTED_DIR = DEBUG_DIR / "posted"
-
-# Add _kiropipe to Python path for module imports
-sys.path.insert(0, str(KIROPIPE_DIR))
-
-if DEBUG_MODE:
-    RESPONSES_DIR.mkdir(parents=True, exist_ok=True)
-    POSTED_DIR.mkdir(parents=True, exist_ok=True)
-
-
-class KiroInterceptor:
-    def __init__(self):
-        self.request_count = 0
-        self.aws_requests = []
-        self.save_to= DEBUG_MODE
-        self.telemetry_blocked = 0
-
-    def request(self, flow: http.HTTPFlow) -> None:
-        """Intercept all requests"""
-        self.request_count += 1
-        
-        # Block telemetry (any region, metrics or traces)
-        if BLOCK_TELEMETRY and 'telemetry' in flow.request.pretty_host:
-            self.telemetry_blocked += 1
-            if DEBUG_MODE:
-                print(f"\n[BLOCKED TELEMETRY #{self.telemetry_blocked}] {flow.request.pretty_url}")
-            flow.response = http.Response.make(
-                200,
-                b'{"status":"ok"}',
-                {"Content-Type": "application/json"}
-            )
-            return
-        
-        # Block update checks
-        if BLOCK_UPDATES and 'metadata-win32' in flow.request.path:
-            if DEBUG_MODE:
-                print(f"\n[BLOCKED UPDATE CHECK] {flow.request.pretty_url}")
-            flow.response = http.Response.make(
-                200,
-                b'{"currentRelease":"0.9.40","releases":[]}',
-                {"Content-Type": "application/json"}
-            )
-            return
-        
         # Block usage limits (optional - may break features)
         if BLOCK_USAGE_LIMITS and 'getUsageLimits' in flow.request.path:
             if DEBUG_MODE:
@@ -172,7 +105,7 @@ class KiroInterceptor:
 
             if DEBUG_MODE:
                 print(f"\n{'='*60}")
-ws_requests)}]")
+                print(f"[AWS REQUEST #{len(self.aws_requests)}]")
                 print(f"{'='*60}")
                 print(f"Method: {flow.request.method}")
                 print(f"Host: {flow.request.pretty_host}")
@@ -214,7 +147,7 @@ ws_requests)}]")
                             json.dump({
                                 'type': 'request',
                                 'url': flow.request.pretty_url,
-                                'headerdict(flow.request.headers),
+                                'headers': dict(flow.request.headers),
                                 'body': body
                             }, f, indent=2)
                 except:
@@ -289,16 +222,16 @@ ws_requests)}]")
                 except Exception as e:
                     pass
                 
-                # Strategy  (streaming response)
+                # Strategy 2: Check if it's event-stream (streaming response)
                 if not decoded and 'text/event-stream' in flow.response.headers.get('content-type', ''):
                     try:
                         text = flow.response.content.decode('utf-8')
                         if DEBUG_MODE:
                             print(f"  [EVENT-STREAM]")
-                            lines = text.split('\n')[:20]
+                            lines = text.split('\n')[:20]  # First 20 lines
                             for line in lines:
                                 print(f"    {line}")
-                       t('\n')) > 20:
+                            if len(text.split('\n')) > 20:
                                 print(f"    ... ({len(text.split('\n'))} total lines)")
                         decoded = True
                         
@@ -318,7 +251,7 @@ ws_requests)}]")
                         print(f"    {hex_data}")
                     
                     # Try to identify format
-                    if flow.response.cont:2] == b'\x1f\x8b':
+                    if flow.response.content[:2] == b'\x1f\x8b':
                         if DEBUG_MODE:
                             print(f"  Format: GZIP compressed")
                         try:
@@ -333,7 +266,7 @@ ws_requests)}]")
                             if self.save_to_file and 'generateAssistantResponse' in flow.request.path:
                                 filename = RESPONSES_DIR / f'response_{len(self.aws_requests)}_gzip.txt'
                                 with open(filename, 'w', encoding='utf-8') as f:
-                                    f.write(decompressed.decode('utf-8')
+                                    f.write(decompressed.decode('utf-8', errors='ignore'))
                         except Exception as e:
                             if DEBUG_MODE:
                                 print(f"  Failed to decompress: {e}")
@@ -342,16 +275,14 @@ ws_requests)}]")
                     if self.save_to_file and 'generateAssistantResponse' in flow.request.path:
                         filename = RESPONSES_DIR / f'response_{len(self.aws_requests)}.bin'
                         with open(filename, 'wb') as f:
-    content)
+                            f.write(flow.response.content)
                         if DEBUG_MODE:
                             print(f"  Saved binary to: {filename.name}")
             
             if DEBUG_MODE:
                 print(f"{'='*60}\n")
 
-
 addons = [KiroInterceptor()]
-
 
 def find_kiro_exe():
     """Find Kiro.exe - check custom path, then auto-detect"""
@@ -386,41 +317,87 @@ def find_kiro_exe():
     
     return None
 
+def kill_existing_launcher():
+    """Kill any existing kiropipe.py processes (except this one)"""
+    try:
+        current_pid = os.getpid()
+        result = subprocess.run(['wmic', 'process', 'where', 
+                               'name="python.exe"', 'get', 'processid,commandline'],
+                              capture_output=True, text=True)
+        
+        for line in result.stdout.split('\n'):
+            if 'kiropipe.py' in line and str(current_pid) not in line:
+                # Extract PID
+                parts = line.strip().split()
+                if parts:
+                    try:
+                        pid = parts[-1]
+                        print(f"Existing kiropipe.py instance found (PID: {pid}). Terminating...")
+                        subprocess.run(['taskkill', '/F', '/PID', pid], 
+                                     capture_output=True)
+                        time.sleep(1)
+                        print("Existing launcher terminated.\n")
+                        return True
+                    except:
+                        pass
+    except Exception as e:
+        print(f"Warning: Could not check for existing launcher: {e}")
+    return False
 
-def monitor_kiro():
-    """Monitor Kiro process and exit when it closes"""
-    global kiro_process
+def wait_for_kiro_window(timeout=10):
+    """Wait for Kiro window to appear and return its PID"""
+    import time
+    start_time = time.time()
     
-    if not kiro_process:
-        return
+    while time.time() - start_time < timeout:
+        try:
+            # Look for Kiro.exe processes with a window
+            result = subprocess.run(
+                ['powershell', '-Command', 
+                 'Get-Process | Where-Object {$_.ProcessName -eq "Kiro" -and $_.MainWindowTitle -ne ""} | Select-Object -ExpandProperty Id'],
+                capture_output=True, text=True, timeout=2
+            )
+            
+            if result.stdout.strip():
+                pids = [int(pid.strip()) for pid in result.stdout.strip().split('\n') if pid.strip().isdigit()]
+                if pids:
+                    return pids[0]  # Return first Kiro window PID
+        except:
+            pass
+        
+        time.sleep(0.5)
+    
+    return None
+
+def monitor_kiro_process(pid):
+    """Monitor a specific Kiro process by PID"""
+    import psutil
     
     try:
-        # Convert subprocess.Popen to psutil.Process for better monitoring
-        kiro_psutil = psutil.Process(kiro_process.pid)
+        process = psutil.Process(pid)
+        print(f"Monitoring Kiro process (PID: {pid})...\n")
         
-        # Wait for Kiro to exit
-        kiro_psutil.wait()
+        # Wait for process to terminate
+        process.wait()
         
         print(f"\n{'='*60}")
-        print("Kiro closed - shutting down KiroPipe")
+        print("Kiro closed")
         print(f"{'='*60}\n")
         
-        # Exit the program (cleanup will be called automatically)
+        # Exit the entire process
         os._exit(0)
         
-    except (psutil.NoSuchProcess, ProcessLookupError):
-        print("\nKiro process ended - shutting down KiroPipe")
-        os._exit(0)
+    except psutil.NoSuchProcess:
+        print(f"\nKiro process (PID: {pid}) not found.")
+        os._exit(1)
     except Exception as e:
         print(f"\nError monitoring Kiro: {e}")
+        os._exit(1)
 
-
-def launch_kiro(port):
+def launch_kiro(port, proxy_process=None):
     """Launch Kiro with proxy settings"""
-    global kiro_process
-    
-    # Wait for proxy to be ready
-    time.sleep(2)
+    # Wait a bit for proxy to be ready
+    time.sleep(3)
     
     # Find Kiro.exe
     kiro_exe = find_kiro_exe()
@@ -450,27 +427,37 @@ def launch_kiro(port):
     env['VSCODE_DEV'] = ''
     env['ELECTRON_RUN_AS_NODE'] = '1'
     
-    # Launch Kiro
+    # Launch Kiro (non-blocking - it spawns child processes)
     try:
-        kiro_process = subprocess.Popen([
+        subprocess.Popen([
             str(kiro_exe),
             str(kiro_cli),
             '--ignore-certificate-errors',
             f'--proxy-server=127.0.0.1:{port}'
         ], env=env)
         
-        # Start monitoring thread
-        monitor_thread = threading.Thread(target=monitor_kiro, daemon=False)
-        monitor_thread.start()
+        # Wait for the actual Kiro window to appear
+        print("Waiting for Kiro window to appear...")
+        kiro_pid = wait_for_kiro_window(timeout=15)
+        
+        if not kiro_pid:
+            print("\nERROR: Kiro window did not appear within 15 seconds.")
+            os._exit(1)
+        
+        print(f"Kiro window detected (PID: {kiro_pid})")
+        
+        # Monitor the actual Kiro window process
+        monitor_kiro_process(kiro_pid)
         
     except Exception as e:
         print(f"\nError launching Kiro: {e}")
-
+        os._exit(1)
 
 if __name__ == "__main__":
     # Check dependencies first
     try:
         import mitmproxy
+        from mitmproxy.tools.main import mitmdump
     except ImportError:
         print("\nERROR: mitmproxy not installed.")
         print("Install with: pip install mitmproxy")
@@ -492,16 +479,9 @@ if __name__ == "__main__":
             port = int(sys.argv[1])
         except ValueError:
             port = DEFAULT_PORT
-    
-    proxy_port = port
-    
-    # Kill any existing process on this port
-    print(f"\nChecking for existing processes on port {port}...")
-    kill_process_on_port(port)
-    time.sleep(1)
 
     print("\n" + "="*60)
-    print("KiroPipe - Unified Launcher")
+    print("Kiro Intercepted - Unified Launcher")
     print("="*60)
     print(f"\nConfiguration:")
     print(f"  - Proxy port: {port}")
@@ -520,15 +500,280 @@ if __name__ == "__main__":
     print("\nNote: Script changes require restart (Ctrl+C and rerun)")
     print("="*60 + "\n")
     
+    # Kill any existing launcher instances first
+    kill_existing_launcher()
+    
+    # Start Kiro in a separate thread
+    kiro_thread = threading.Thread(target=lambda: launch_kiro(port, None), daemon=False)
+    kiro_thread.start()
+    
+    # Run mitmproxy in main thread (this blocks until proxy stops)
+    try:
+        sys.argv = ['mitmdump', '-s', __file__, '--listen-port', str(port)]
+        mitmdump()
+    except KeyboardInterrupt:
+        print("\n\nShutting down...")
+    
+    print("Proxy stopped. Waiting for cleanup...")
+    kiro_thread.join(timeout=5)
+    print("Cleanup complete.")
+
+    def __init__(self):
+        self.request_count = 0
+        self.aws_requests = []
+        self.save_to_file = True
+
+    def request(self, flow: http.HTTPFlow) -> None:
+        """Intercept all requests"""
+        self.request_count += 1
+
+        # Check if it's an AWS Q request
+        if 'amazonaws.com' in flow.request.pretty_host or 'kiro.dev' in flow.request.pretty_host:
+            self.aws_requests.append({
+                'url': flow.request.pretty_url,
+                'method': flow.request.method,
+                'host': flow.request.pretty_host,
+                'path': flow.request.path
+            })
+
+            print(f"\n{'='*60}")
+            print(f"[AWS REQUEST #{len(self.aws_requests)}]")
+            print(f"{'='*60}")
+            print(f"Method: {flow.request.method}")
+            print(f"Host: {flow.request.pretty_host}")
+            print(f"Path: {flow.request.path}")
+            print(f"URL: {flow.request.pretty_url}")
+
+            # Print headers
+            print(f"\nHeaders:")
+            for k, v in flow.request.headers.items():
+                if k.lower() in ['authorization', 'x-amz-target', 'content-type', 'user-agent']:
+                    print(f"  {k}: {v}")
+
+            # Print body if present
+            if flow.request.content:
+                print(f"\nBody ({len(flow.request.content)} bytes):")
+                try:
+                    body = flow.request.text
+                    # Try to parse as JSON for pretty printing
+                    try:
+                        body_json = json.loads(body)
+                        body_str = json.dumps(body_json, indent=2)
+                        if len(body_str) > 1000:
+                            print(f"  {body_str[:1000]}...")
+                        else:
+                            print(f"  {body_str}")
+                    except:
+                        # Not JSON, print as text
+                        if len(body) > 500:
+                            print(f"  {body[:500]}...")
+                        else:
+                            print(f"  {body}")
+                    
+                    # Save to file
+                    if self.save_to_file and 'generateAssistantResponse' in flow.request.path:
+                        with open('captured_requests.jsonl', 'a', encoding='utf-8') as f:
+                            f.write(json.dumps({
+                                'type': 'request',
+                                'url': flow.request.pretty_url,
+                                'headers': dict(flow.request.headers),
+                                'body': body
+                            }) + '\n')
+                except:
+                    print(f"  [Binary content]")
+
+            print(f"{'='*60}\n")
+
+    def response(self, flow: http.HTTPFlow) -> None:
+        """Intercept all responses"""
+        if 'amazonaws.com' in flow.request.pretty_host or 'kiro.dev' in flow.request.pretty_host:
+            print(f"\n{'='*60}")
+            print(f"[AWS RESPONSE]")
+            print(f"{'='*60}")
+            print(f"Status: {flow.response.status_code}")
+            print(f"URL: {flow.request.pretty_url}")
+            
+            # Print response headers
+            print(f"\nResponse Headers:")
+            for k, v in flow.response.headers.items():
+                if k.lower() in ['content-type', 'content-encoding', 'content-length', 'x-amzn-requestid']:
+                    print(f"  {k}: {v}")
+
+            if flow.response.content:
+                print(f"\nResponse Body ({len(flow.response.content)} bytes):")
+                
+                # Try multiple decoding strategies
+                decoded = False
+                
+                # Strategy 1: Try as text/JSON
+                try:
+                    text = flow.response.text
+                    # Try to parse as JSON
+                    try:
+                        response_json = json.loads(text)
+                        response_str = json.dumps(response_json, indent=2)
+                        if len(response_str) > 1000:
+                            print(f"  [JSON] {response_str[:1000]}...")
+                        else:
+                            print(f"  [JSON] {response_str}")
+                        decoded = True
+                        
+                        # Save to file
+                        if self.save_to_file and 'generateAssistantResponse' in flow.request.path:
+                            with open('captured_responses.jsonl', 'a', encoding='utf-8') as f:
+                                f.write(json.dumps({
+                                    'type': 'response',
+                                    'url': flow.request.pretty_url,
+                                    'status': flow.response.status_code,
+                                    'headers': dict(flow.response.headers),
+                                    'body': response_json
+                                }) + '\n')
+                    except:
+                        # Not JSON, but is text
+                        if len(text) > 500:
+                            print(f"  [TEXT] {text[:500]}...")
+                        else:
+                            print(f"  [TEXT] {text}")
+                        decoded = True
+                        
+                        # Save raw text
+                        if self.save_to_file and 'generateAssistantResponse' in flow.request.path:
+                            with open('captured_responses.jsonl', 'a', encoding='utf-8') as f:
+                                f.write(json.dumps({
+                                    'type': 'response',
+                                    'url': flow.request.pretty_url,
+                                    'status': flow.response.status_code,
+                                    'headers': dict(flow.response.headers),
+                                    'body': text
+                                }) + '\n')
+                except Exception as e:
+                    pass
+                
+                # Strategy 2: Check if it's event-stream (streaming response)
+                if not decoded and 'text/event-stream' in flow.response.headers.get('content-type', ''):
+                    try:
+                        text = flow.response.content.decode('utf-8')
+                        print(f"  [EVENT-STREAM]")
+                        lines = text.split('\n')[:20]  # First 20 lines
+                        for line in lines:
+                            print(f"    {line}")
+                        if len(text.split('\n')) > 20:
+                            print(f"    ... ({len(text.split('\n'))} total lines)")
+                        decoded = True
+                    except:
+                        pass
+                
+                # Strategy 3: Binary/unknown
+                if not decoded:
+                    print(f"  [BINARY] First 100 bytes (hex):")
+                    hex_data = flow.response.content[:100].hex()
+                    print(f"    {hex_data}")
+                    
+                    # Try to identify format
+                    if flow.response.content[:2] == b'\x1f\x8b':
+                        print(f"  Format: GZIP compressed")
+                        try:
+                            import gzip
+                            decompressed = gzip.decompress(flow.response.content)
+                            print(f"  Decompressed ({len(decompressed)} bytes):")
+                            print(f"    {decompressed[:500].decode('utf-8', errors='ignore')}")
+                        except Exception as e:
+                            print(f"  Failed to decompress: {e}")
+                    
+                    # Save binary to file
+                    if self.save_to_file and 'generateAssistantResponse' in flow.request.path:
+                        filename = f'response_binary_{len(self.aws_requests)}.bin'
+                        with open(filename, 'wb') as f:
+                            f.write(flow.response.content)
+                        print(f"  Saved to: {filename}")
+            
+            print(f"{'='*60}\n")
+
+addons = [KiroInterceptor()]
+
+def launch_kiro(port):
+    """Launch Kiro with proxy settings"""
+    # Wait for proxy to be ready
+    time.sleep(2)
+    
+    # Find Kiro.exe
+    script_dir = Path(__file__).parent.parent
+    kiro_exe = script_dir / "Kiro" / "Kiro.exe"
+    kiro_cli = script_dir / "Kiro" / "resources" / "app" / "out" / "cli.js"
+    
+    if not kiro_exe.exists():
+        print(f"\nERROR: Kiro.exe not found at {kiro_exe}")
+        return
+    
+    if not kiro_cli.exists():
+        print(f"\nERROR: cli.js not found at {kiro_cli}")
+        return
+    
+    print(f"\n{'='*60}")
+    print("Launching Kiro...")
+    print(f"{'='*60}\n")
+    
+    # Set environment variables
+    env = os.environ.copy()
+    env['NODE_TLS_REJECT_UNAUTHORIZED'] = '0'
+    env['ELECTRON_IGNORE_CERTIFICATE_ERRORS'] = '1'
+    env['VSCODE_DEV'] = ''
+    env['ELECTRON_RUN_AS_NODE'] = '1'
+    
+    # Launch Kiro
+    try:
+        subprocess.run([
+            str(kiro_exe),
+            str(kiro_cli),
+            '--ignore-certificate-errors',
+            f'--proxy-server=127.0.0.1:{port}'
+        ], env=env)
+        
+        print(f"\n{'='*60}")
+        print("Kiro closed")
+        print(f"{'='*60}\n")
+    except Exception as e:
+        print(f"\nError launching Kiro: {e}")
+
+if __name__ == "__main__":
+    # Check dependencies first
+    try:
+        import mitmproxy
+    except ImportError:
+        print("\nERROR: mitmproxy not installed.")
+        print("Install with: pip install mitmproxy")
+        input("\nPress Enter to exit...")
+        sys.exit(1)
+    
+    # Get port from command line or use default
+    port = 29974
+    if len(sys.argv) > 1:
+        try:
+            port = int(sys.argv[1])
+        except ValueError:
+            port = 29974
+
+    print("\n" + "="*60)
+    print("Kiro Intercepted - Unified Launcher")
+    print("="*60)
+    print(f"\nConfiguration:")
+    print(f"  - Proxy port: {port}")
+    print(f"  - Certificate validation: DISABLED")
+    print(f"  - Only Kiro traffic is proxied")
+    print("\nCapture features:")
+    print("  - JSON pretty-printing")
+    print("  - Event-stream detection")
+    print("  - GZIP decompression")
+    print("  - Binary format identification")
+    print("  - Auto-save to captured_*.jsonl files")
+    print("\nStarting proxy...")
+    print("="*60 + "\n")
+    
     # Start Kiro in a separate thread
     kiro_thread = threading.Thread(target=launch_kiro, args=(port,), daemon=True)
     kiro_thread.start()
     
     # Run mitmproxy in main thread
-    try:
-        sys.argv = ['mitmdump', '-s', __file__, '--listen-port', str(port)]
-        mitmdump()
-    except KeyboardInterrupt:
-        print("\n\nReceived interrupt signal...")
-    finally:
-        cleanup()
+    sys.argv = ['mitmdump', '-s', __file__, '--listen-port', str(port)]
+    mitmdump()
+

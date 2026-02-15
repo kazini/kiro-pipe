@@ -1,0 +1,7 @@
+# KiroPipe Requirements
+
+# Proxy and interception
+mitmproxy>=10.0.0
+
+# Process monitoring
+psutil>=5.9.0
