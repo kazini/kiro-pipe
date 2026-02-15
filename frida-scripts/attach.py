@@ -43,7 +43,23 @@ class FridaKiroAttacher:
         self.hooks_dir = Path(__file__).parent
 
     def find_process(self):
-        """Find Kiro process in running processes"""
+        """Find Kiro process in running processes or use PID directly"""
+        # Check if target_process is a PID (numeric)
+        try:
+            pid = int(self.target_process)
+            # Verify PID exists
+            processes = self.device.enumerate_processes()
+            for process in processes:
+                if process.pid == pid:
+                    print(f"{Colors.GREEN}✓ Found process by PID: {process.name} (PID: {process.pid}){Colors.ENDC}")
+                    return process.pid
+            print(f"{Colors.RED}✗ PID {pid} not found or not running{Colors.ENDC}")
+            return None
+        except ValueError:
+            # Not a PID, treat as process name
+            pass
+        
+        # Search by process name
         processes = self.device.enumerate_processes()
         
         for process in processes:
@@ -194,14 +210,14 @@ Examples:
     
     parser.add_argument('--hook', 
                        default='combined',
-                       choices=['combined', 'cert-only', 'logger', 'redirect', 'debug_logger'],
+                       choices=['combined', 'cert-only', 'logger', 'redirect', 'debug_logger', 'find_context', 'enumerate_modules', 'windows_net_hook', 'simple_winhttp_hook', 'corrected_hook', 'comprehensive_hook', 'check_processes', 'aws_bedrock_hook', 'socket_monitor', 'diagnostic', 'test_any_network', 'find_renderer', 'analyze_process_tree', 'renderer_hook', 'kiro_api_hook', 'auto_find_and_hook', 'intercept_and_redirect', 'diagnose_networking'],
                        help='Which hook set to inject (default: combined)')
     parser.add_argument('--list', 
                        action='store_true',
                        help='List running processes and exit')
     parser.add_argument('--process',
                        default='Kiro',
-                       help='Process name to attach to (default: Kiro)')
+                       help='Process name or PID to attach to (default: Kiro)')
     
     args = parser.parse_args()
     
@@ -217,7 +233,25 @@ Examples:
         'cert-only': 'certificate_bypass',
         'logger': 'request_logger',
         'redirect': 'request_redirect',
-        'debug_logger': 'debug_logger'
+        'debug_logger': 'debug_logger',
+        'find_context': 'find_context',
+        'enumerate_modules': 'enumerate_modules',
+        'windows_net_hook': 'windows_net_hook',
+        'simple_winhttp_hook': 'simple_winhttp_hook',
+        'corrected_hook': 'corrected_hook',
+        'comprehensive_hook': 'comprehensive_hook',
+        'check_processes': 'check_processes',
+        'aws_bedrock_hook': 'aws_bedrock_hook',
+        'socket_monitor': 'socket_monitor',
+        'diagnostic': 'diagnostic',
+        'test_any_network': 'test_any_network',
+        'find_renderer': 'find_renderer',
+        'analyze_process_tree': 'analyze_process_tree',
+        'renderer_hook': 'renderer_hook',
+        'kiro_api_hook': 'kiro_api_hook',
+        'auto_find_and_hook': 'auto_find_and_hook',
+        'intercept_and_redirect': 'intercept_and_redirect',
+        'diagnose_networking': 'diagnose_networking'
     }
     
     hook_file = hook_map.get(args.hook, 'combined')
