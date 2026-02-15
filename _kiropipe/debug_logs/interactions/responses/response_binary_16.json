@@ -1,0 +1,1951 @@
+[
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "Goo"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "d questions! Let me address them"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": ":"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "\n\n1"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": ". **Metrics an"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "d traces"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "**"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " - Not"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " needed,"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " they're just"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " tel"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "emetry"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "\n2. **Block"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " tel"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "emetry from"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " any"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " region"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "** - Goo"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "d catch"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "!"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "\n3. **Block update"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " checks** - Yes"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "\n4. **Script"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " updates live** - No"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": ", you"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " nee"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "d to restart"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "."
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " m"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "itm"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "proxy loads"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " the script once"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " at"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " startup."
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "\n\nLet me update the script with"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " better"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " blocking"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": ":"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "{\"",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "newStr\": \"# ",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "======",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "==========",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "============",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "============",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "==",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "=======",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "===========",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "\\n# CO",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "NFIGURATI",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "ON\\n# ==",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "===========",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "==========",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "=====",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "=====",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "====",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "=========",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "==",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "======",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "======",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "\\nDEFAULT_",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "POR",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "T = 299",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "74\\nK",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "IRO",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "_EXE_",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "PA",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "TH = N",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "one  # Set t",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "o custo",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "m path",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": " or N",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "one to",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": " auto-",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "detec",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "t\\nBLOCK_",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "TELEMETRY =",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": " True ",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": " # Block",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": " telemetr",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "y (metric",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "s/trace",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "s)",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "\\nBLOCK_UPDA",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "TES =",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": " T",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "rue",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "  # Block u",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "pdat",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "e checks",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "\\nBLO",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "CK_USA",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "GE",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "_LIMIT",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "S = False  #",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": " Bl",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "ock usag",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "e limit ch",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "ecks (may",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": " break featu",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "res)\\n# ===",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "=====",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "===",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "============",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "==========",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "===========",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "======",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "==========\"",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": ", \"o",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "ldSt",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "r\": \"# ==",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "==",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "======",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "=========",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "========",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "==========",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "====",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "==========",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "=========\\n",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "# CONFIGUR",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "ATION\\",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "n# =======",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "========",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "============",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "=======",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "===",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "===========",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "===",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "=========\\nD",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "EFAULT",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "_PORT",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": " = 29974\\",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "nKIRO",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "_EXE_PA",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "TH = None",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "  # Set to ",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "cus",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "tom p",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "ath or No",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "ne to auto-d",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "etec",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "t\\nBLOCK_TE",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "LEMET",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "RY = ",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "True  # Set",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": " to Fals",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "e to allo",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "w tel",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "emetry\\n# ==",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "==========",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "====",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "======",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "======",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "====",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "=======",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "=======",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "=======",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "=====",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "==\"",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": ", \"pa",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "th",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "\": \"frida-sc",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "rip",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "ts/unified_",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "launcher.",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "py\"}",
+      "name": "strReplace",
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "meteringEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "unit": "credit",
+      "unitPlural": "credits",
+      "usage": 0.22418896853923798
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "contextUsageEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "contextUsagePercentage": 53.87849807739258
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "name": "strReplace",
+      "stop": true,
+      "toolUseId": "tooluse_imQM4sTGlCiF9tsNUFM6oa"
+    }
+  }
+]

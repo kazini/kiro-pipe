@@ -1,0 +1,654 @@
+[
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "The"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " important"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " parts"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " are"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " being"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " saved to files! Check"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " these"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " files in"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " the"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " `"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "fr"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "ida-scripts` directory:\n\n-"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " `capture"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "d_requests.jsonl` - All"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " AWS"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " Q"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " requests"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "\n- `captured_responses.json"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "l` - All AWS Q"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " responses with"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " metadata"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "\n- `response_binary_*."
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "bin` - Any"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " binary responses"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "\n\nYou"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " can run"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " the analysis"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " tool"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " to"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " see what"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " was"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " captured:\n\n```bash\npython fr"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "ida-scripts/analyze_responses"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": ".py"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "\n```\n\nOr"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " just"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " share"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " the console"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " output with"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " me directly"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " -"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " I can"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " analyze"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " it."
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " But"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " the files are there for permanent"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " storage,"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " so you can also"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " just"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " rea"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "d those"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " files to"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " see what"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " was captured.\n\nWhat"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " does"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " the console"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " show"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "?"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " Di"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "d it"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " capture the response"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " format"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "?"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "meteringEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "unit": "credit",
+      "unitPlural": "credits",
+      "usage": 0.1612577736377716
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "contextUsageEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "contextUsagePercentage": 41.14550018310547
+    }
+  }
+]

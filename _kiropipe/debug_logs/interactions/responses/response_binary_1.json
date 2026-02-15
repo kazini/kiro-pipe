@@ -1,0 +1,724 @@
+[
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "Perfect"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "! Now the"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " script:"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "\n\n1. **Blocks telemetry"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " from"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " ANY"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " region** - checks"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " for"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " "
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "'telemetry' in hostname"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " ("
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "works"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " for"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " all regions)\n2. **"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "Blocks update checks** - prevents"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " Kiro from checking"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " for"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " updates\n3. **Optional"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " usage"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " limits blocking"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "** - set"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " to False by"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " default ("
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "may break features if"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " enable"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "d)\n4. **Shows"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " configuration"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " on"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " startup** - so"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " you know"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " what's blocked\n5. **Note"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " about rest"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "arts** - remin"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "ds you that"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " code"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " changes nee"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "d a"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " restart\n\nTo"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " apply"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " these changes,"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " you need to:\n1. Stop"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " the current"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " script ("
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "Ctrl+C)\n2."
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " Run it"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " again:"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " `python fr"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "ida-scripts/unified_launcher."
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "py`"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "\n\nThe script doesn"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "'t hot"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "-reload because"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " m"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "itmproxy loads it once at startup"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": ". Each"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " time you change"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " the code, restart"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " the script.\n\nNow"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " run"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " the decoder"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " to see what"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "'s in"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " those"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " binary files:"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "\n```bash\nc"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "d frida-scripts\npython decode_"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "event_stream.py\n```"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "\n\nThis"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " will show you the actual AI"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " responses!"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "meteringEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "unit": "credit",
+      "unitPlural": "credits",
+      "usage": 0.21645961701869965
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "contextUsageEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "contextUsagePercentage": 54.71799850463867
+    }
+  }
+]

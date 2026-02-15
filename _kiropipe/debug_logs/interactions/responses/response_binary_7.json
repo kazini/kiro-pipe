@@ -1,0 +1,397 @@
+[
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "I"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " can"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " see you"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " have"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " an"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " `"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "analysis.log` file open"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": ". Let me rea"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": "d that"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " to see"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "assistantResponseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "content": " what was captured:"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "name": "readFile",
+      "toolUseId": "tooluse_5bnt9Bbm6P3XoLOB5fqbLx"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "{\"explana",
+      "name": "readFile",
+      "toolUseId": "tooluse_5bnt9Bbm6P3XoLOB5fqbLx"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "tion\"",
+      "name": "readFile",
+      "toolUseId": "tooluse_5bnt9Bbm6P3XoLOB5fqbLx"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": ": \"Re",
+      "name": "readFile",
+      "toolUseId": "tooluse_5bnt9Bbm6P3XoLOB5fqbLx"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "adi",
+      "name": "readFile",
+      "toolUseId": "tooluse_5bnt9Bbm6P3XoLOB5fqbLx"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "ng the ca",
+      "name": "readFile",
+      "toolUseId": "tooluse_5bnt9Bbm6P3XoLOB5fqbLx"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "ptu",
+      "name": "readFile",
+      "toolUseId": "tooluse_5bnt9Bbm6P3XoLOB5fqbLx"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "red c",
+      "name": "readFile",
+      "toolUseId": "tooluse_5bnt9Bbm6P3XoLOB5fqbLx"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "onso",
+      "name": "readFile",
+      "toolUseId": "tooluse_5bnt9Bbm6P3XoLOB5fqbLx"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "le output t",
+      "name": "readFile",
+      "toolUseId": "tooluse_5bnt9Bbm6P3XoLOB5fqbLx"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "o a",
+      "name": "readFile",
+      "toolUseId": "tooluse_5bnt9Bbm6P3XoLOB5fqbLx"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "nalyze the",
+      "name": "readFile",
+      "toolUseId": "tooluse_5bnt9Bbm6P3XoLOB5fqbLx"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": " API tra",
+      "name": "readFile",
+      "toolUseId": "tooluse_5bnt9Bbm6P3XoLOB5fqbLx"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "ffic a",
+      "name": "readFile",
+      "toolUseId": "tooluse_5bnt9Bbm6P3XoLOB5fqbLx"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "nd ",
+      "name": "readFile",
+      "toolUseId": "tooluse_5bnt9Bbm6P3XoLOB5fqbLx"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "respons",
+      "name": "readFile",
+      "toolUseId": "tooluse_5bnt9Bbm6P3XoLOB5fqbLx"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "e forma",
+      "name": "readFile",
+      "toolUseId": "tooluse_5bnt9Bbm6P3XoLOB5fqbLx"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "t\"",
+      "name": "readFile",
+      "toolUseId": "tooluse_5bnt9Bbm6P3XoLOB5fqbLx"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": ", \"path\": ",
+      "name": "readFile",
+      "toolUseId": "tooluse_5bnt9Bbm6P3XoLOB5fqbLx"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "\"analysis.lo",
+      "name": "readFile",
+      "toolUseId": "tooluse_5bnt9Bbm6P3XoLOB5fqbLx"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "input": "g\"}",
+      "name": "readFile",
+      "toolUseId": "tooluse_5bnt9Bbm6P3XoLOB5fqbLx"
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "meteringEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "unit": "credit",
+      "unitPlural": "credits",
+      "usage": 0.17568644881248474
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "contextUsageEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "contextUsagePercentage": 41.951499938964844
+    }
+  },
+  {
+    "headers": {
+      ":event-type": "toolUseEvent",
+      ":content-type": "application/json",
+      ":message-type": "event"
+    },
+    "payload": {
+      "name": "readFile",
+      "stop": true,
+      "toolUseId": "tooluse_5bnt9Bbm6P3XoLOB5fqbLx"
+    }
+  }
+]
