@@ -433,9 +433,13 @@ class KiroInterceptor:
                                 "stream": True
                             }
                             
-                            # Call Anthropic API
+                            if DEBUG_MODE_ENABLED:
+                                print(f"{Fore.CYAN} [ANTHROPIC]{Style.RESET_ALL} Calling API...")
+                            
+                            # Call Anthropic API with streaming
                             with httpx.Client(timeout=300.0) as client:
-                                response = client.post(
+                                with client.stream(
+                                    "POST",
                                     f"{api_base}/messages",
                                     json=anthropic_request,
                                     headers={
@@ -443,19 +447,110 @@ class KiroInterceptor:
                                         "anthropic-version": "2023-06-01",
                                         "content-type": "application/json"
                                     }
-                                )
-                                
-                                if DEBUG_MODE_ENABLED:
-                                    print(f"{Fore.GREEN} [ANTHROPIC]{Style.RESET_ALL} Response: {Fore.CYAN}{response.status_code}{Style.RESET_ALL}")
-                                
-                                # For now, just return the raw response
-                                # TODO: Transform Anthropic response to AWS format
-                                flow.response = http.Response.make(
-                                    response.status_code,
-                                    response.content,
-                                    dict(response.headers)
-                                )
-                                return
+                                ) as response:
+                                    if DEBUG_MODE_ENABLED:
+                                        print(f"{Fore.GREEN} [ANTHROPIC]{Style.RESET_ALL} Response: {Fore.CYAN}{response.status_code}{Style.RESET_ALL}")
+                                    
+                                    if response.status_code != 200:
+                                        # Error response - return as-is
+                                        error_content = response.read()
+                                        flow.response = http.Response.make(
+                                            response.status_code,
+                                            error_content,
+                                            dict(response.headers)
+                                        )
+                                        return
+                                    
+                                    # Import response translator
+                                    from engine.response_translator import translate_anthropic_stream, parse_anthropic_sse
+                                    
+                                    # Parse SSE stream and translate to AWS format
+                                    def anthropic_event_generator():
+                                        """Parse Anthropic SSE stream into event objects"""
+                                        buffer = ""
+                                        for chunk in response.iter_text():
+                                            buffer += chunk
+                                            # Process complete lines
+                                            while '\n' in buffer:
+                                                line, buffer = buffer.split('\n', 1)
+                                                line = line.strip()
+                                                if line.startswith('data: '):
+                                                    data = line[6:]  # Remove 'data: ' prefix
+                                                    if data and data != '[DONE]':
+                                                        try:
+                                                            yield json.loads(data)
+                                                        except json.JSONDecodeError:
+                                                            pass
+                                    
+                                    # Translate Anthropic events to AWS event stream
+                                    aws_binary = b''.join(translate_anthropic_stream(anthropic_event_generator()))
+                                    
+                                    if DEBUG_MODE_ENABLED:
+                                        print(f"{Fore.GREEN} [ANTHROPIC]{Style.RESET_ALL} Translated to AWS format: {Fore.YELLOW}{len(aws_binary)} bytes{Style.RESET_ALL}")
+                                    
+                                    # Return AWS event stream response
+                                    flow.response = http.Response.make(
+                                        200,
+                                        aws_binary,
+                                        {
+                                            'Content-Type': 'application/vnd.amazon.eventstream',
+                                            'x-amzn-RequestId': f'anthropic-{self.current_model}'
+                                        }
+                                    )
+                                    return
+                        
+                        elif provider_name == 'litellm':
+                            # Use LiteLLM for universal provider support
+                            try:
+                                from litellm import completion
+                            except ImportError:
+                                raise Exception("LiteLLM not installed. Run: pip install litellm")
+                            
+                            if DEBUG_MODE_ENABLED:
+                                print(f"{Fore.CYAN} [LITELLM]{Style.RESET_ALL} Using model: {self.current_model}")
+                            
+                            # Import response translator
+                            from engine.response_translator import translate_openai_stream
+                            
+                            # LiteLLM uses OpenAI format and returns a streaming generator
+                            response_stream = completion(
+                                model=self.current_model,
+                                messages=[{"role": "user", "content": user_message}],
+                                stream=True
+                            )
+                            
+                            if DEBUG_MODE_ENABLED:
+                                print(f"{Fore.GREEN} [LITELLM]{Style.RESET_ALL} Streaming response received")
+                            
+                            # Convert LiteLLM stream to AWS format
+                            # LiteLLM returns OpenAI-compatible chunks
+                            def litellm_event_generator():
+                                """Convert LiteLLM chunks to dict format"""
+                                for chunk in response_stream:
+                                    # LiteLLM returns ModelResponse objects, convert to dict
+                                    if hasattr(chunk, 'model_dump'):
+                                        yield chunk.model_dump()
+                                    elif hasattr(chunk, 'dict'):
+                                        yield chunk.dict()
+                                    else:
+                                        yield dict(chunk)
+                            
+                            # Translate to AWS event stream
+                            aws_binary = b''.join(translate_openai_stream(litellm_event_generator()))
+                            
+                            if DEBUG_MODE_ENABLED:
+                                print(f"{Fore.GREEN} [LITELLM]{Style.RESET_ALL} Translated to AWS format: {Fore.YELLOW}{len(aws_binary)} bytes{Style.RESET_ALL}")
+                            
+                            # Return AWS event stream response
+                            flow.response = http.Response.make(
+                                200,
+                                aws_binary,
+                                {
+                                    'Content-Type': 'application/vnd.amazon.eventstream',
+                                    'x-amzn-RequestId': f'litellm-{self.current_model}'
+                                }
+                            )
+                            return
                         
                         else:
                             # Other providers not yet implemented
