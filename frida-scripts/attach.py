@@ -8,12 +8,18 @@ Purpose: Attach Frida to running Kiro process and inject hooks for:
 2. HTTPS request interception and logging
 3. Request redirection to localhost:8888
 
+Modes:
+- ATTACH: Attach to running Kiro process (default)
+- SPAWN: Spawn Kiro with Frida from start (bypasses anti-debug)
+
 Usage:
-    python attach.py --hook combined      # Use all hooks
+    python attach.py --hook combined      # Use all hooks (attach mode)
     python attach.py --hook cert-only     # Only certificate bypass
     python attach.py --hook logger        # Only request logging
     python attach.py --hook redirect      # Only request redirection
     python attach.py --list               # List running processes
+    python attach.py --spawn              # Spawn Kiro with hooks (anti-debug bypass)
+    python attach.py --spawn --hook kiro_api_hook  # Spawn with specific hook
 """
 
 import frida
@@ -41,6 +47,8 @@ class FridaKiroAttacher:
         self.session = None
         self.script = None
         self.hooks_dir = Path(__file__).parent
+        self.monitored_pids = set()
+        self.child_sessions = []
 
     def find_process(self):
         """Find Kiro process in running processes or use PID directly"""
@@ -68,6 +76,23 @@ class FridaKiroAttacher:
                 return process.pid
         
         print(f"{Colors.RED}✗ Could not find process: {self.target_process}{Colors.ENDC}")
+        return None
+
+    def find_kiro_executable(self):
+        """Find Kiro.exe location"""
+        common_paths = [
+            r"C:\Users\{username}\AppData\Local\Programs\Kiro\Kiro.exe",
+            r"C:\Program Files\Kiro\Kiro.exe",
+            r"C:\Program Files (x86)\Kiro\Kiro.exe",
+        ]
+        
+        username = os.environ.get('USERNAME', '')
+        
+        for path_template in common_paths:
+            path = path_template.format(username=username)
+            if Path(path).exists():
+                return path
+        
         return None
 
     def list_processes(self):
@@ -180,6 +205,108 @@ class FridaKiroAttacher:
             self.cleanup()
             print(f"{Colors.GREEN}Detached successfully{Colors.ENDC}")
 
+    def spawn_and_hook(self, kiro_path, hook_type='kiro_api_hook'):
+        """Spawn Kiro with Frida and inject hooks before anti-debug initializes"""
+        
+        print(f"\n{Colors.BOLD}🚀 Frida Spawn Gating Mode{Colors.ENDC}")
+        print(f"{Colors.BOLD}{'=' * 60}{Colors.ENDC}\n")
+        print(f"Kiro path: {kiro_path}")
+        print(f"Hook: {hook_type}")
+        
+        # Load hook script
+        print(f"\n{Colors.BLUE}[1/5] Loading hook script...{Colors.ENDC}")
+        hook_code = self.load_hook(hook_type)
+        if not hook_code:
+            return False
+        print(f"{Colors.GREEN}✓ Loaded {hook_type}.js{Colors.ENDC}")
+        
+        # Spawn Kiro (suspended)
+        print(f"\n{Colors.BLUE}[2/5] Spawning Kiro (suspended)...{Colors.ENDC}")
+        try:
+            pid = self.device.spawn([kiro_path])
+            print(f"{Colors.GREEN}✓ Spawned with PID: {pid}{Colors.ENDC}")
+            self.monitored_pids.add(pid)
+        except Exception as e:
+            print(f"{Colors.RED}✗ Failed to spawn: {e}{Colors.ENDC}")
+            return False
+        
+        # Attach to spawned process
+        print(f"\n{Colors.BLUE}[3/5] Attaching to spawned process...{Colors.ENDC}")
+        try:
+            self.session = self.device.attach(pid)
+            print(f"{Colors.GREEN}✓ Attached to PID {pid}{Colors.ENDC}")
+        except Exception as e:
+            print(f"{Colors.RED}✗ Failed to attach: {e}{Colors.ENDC}")
+            self.device.kill(pid)
+            return False
+        
+        # Inject hooks BEFORE resuming
+        print(f"\n{Colors.BLUE}[4/5] Injecting hooks (before resume)...{Colors.ENDC}")
+        try:
+            self.script = self.session.create_script(hook_code)
+            self.script.on('message', self.on_message)
+            self.script.load()
+            print(f"{Colors.GREEN}✓ Hooks injected successfully{Colors.ENDC}")
+        except Exception as e:
+            print(f"{Colors.RED}✗ Failed to inject hooks: {e}{Colors.ENDC}")
+            self.device.kill(pid)
+            return False
+        
+        # Resume process
+        print(f"\n{Colors.BLUE}[5/5] Resuming Kiro...{Colors.ENDC}")
+        self.device.resume(pid)
+        print(f"{Colors.GREEN}✓ Kiro is now running with hooks active{Colors.ENDC}")
+        print(f"{Colors.CYAN}Main PID: {pid}{Colors.ENDC}")
+        
+        print(f"\n{Colors.GREEN}{Colors.BOLD}{'=' * 60}")
+        print(f"✓ SPAWN GATING ACTIVE - MONITORING CHILD PROCESSES")
+        print(f"{'=' * 60}{Colors.ENDC}\n")
+        
+        print(f"{Colors.YELLOW}Monitoring for child processes (network subprocess)...{Colors.ENDC}")
+        print(f"{Colors.CYAN}Press Ctrl+C to stop{Colors.ENDC}\n")
+        
+        return True
+
+    def monitor_child_processes(self, hook_code):
+        """Monitor for new Kiro child processes and auto-inject hooks"""
+        try:
+            processes = self.device.enumerate_processes()
+            kiro_processes = [p for p in processes if 'kiro' in p.name.lower()]
+            
+            for proc in kiro_processes:
+                if proc.pid not in self.monitored_pids:
+                    print(f"{Colors.GREEN}[NEW PROCESS] PID {proc.pid}: {proc.name}{Colors.ENDC}")
+                    self.monitored_pids.add(proc.pid)
+                    
+                    # Try to attach to new process
+                    try:
+                        print(f"{Colors.YELLOW}  Attempting to attach...{Colors.ENDC}")
+                        child_session = self.device.attach(proc.pid)
+                        child_script = child_session.create_script(hook_code)
+                        child_script.on('message', self.on_message)
+                        child_script.load()
+                        
+                        # Store session to prevent cleanup
+                        self.child_sessions.append((child_session, child_script))
+                        
+                        print(f"{Colors.GREEN}  ✓ Hooks injected into PID {proc.pid}{Colors.ENDC}")
+                    except Exception as e:
+                        print(f"{Colors.RED}  ✗ Failed to attach to PID {proc.pid}: {e}{Colors.ENDC}")
+        except Exception as e:
+            # Ignore enumeration errors
+            pass
+
+    def run_spawn_interactive(self, hook_code):
+        """Keep script running and monitor for child processes"""
+        try:
+            while True:
+                time.sleep(2)
+                self.monitor_child_processes(hook_code)
+        except KeyboardInterrupt:
+            print(f"\n\n{Colors.YELLOW}Stopping Frida interception...{Colors.ENDC}")
+            self.cleanup()
+            print(f"{Colors.GREEN}Detached successfully{Colors.ENDC}")
+
     def cleanup(self):
         """Clean up Frida resources"""
         if self.script:
@@ -193,6 +320,17 @@ class FridaKiroAttacher:
                 self.session.detach()
             except:
                 pass
+        
+        # Cleanup child sessions
+        for child_session, child_script in self.child_sessions:
+            try:
+                child_script.unload()
+            except:
+                pass
+            try:
+                child_session.detach()
+            except:
+                pass
 
 def main():
     parser = argparse.ArgumentParser(
@@ -200,17 +338,20 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s --hook combined          # All interception hooks
+  %(prog)s --hook combined          # All interception hooks (attach mode)
   %(prog)s --hook cert-only         # Only certificate bypass
   %(prog)s --hook logger            # Only request logging
   %(prog)s --hook redirect          # Only hostname redirect
   %(prog)s --list                   # List running processes
+  %(prog)s --spawn                  # Spawn Kiro with hooks (anti-debug bypass)
+  %(prog)s --spawn --hook kiro_api_hook  # Spawn with specific hook
+  %(prog)s --spawn --kiro-path "C:\\Path\\To\\Kiro.exe"  # Custom Kiro path
         """
     )
     
     parser.add_argument('--hook', 
                        default='combined',
-                       choices=['combined', 'cert-only', 'logger', 'redirect', 'debug_logger', 'find_context', 'enumerate_modules', 'windows_net_hook', 'simple_winhttp_hook', 'corrected_hook', 'comprehensive_hook', 'check_processes', 'aws_bedrock_hook', 'socket_monitor', 'diagnostic', 'test_any_network', 'find_renderer', 'analyze_process_tree', 'renderer_hook', 'kiro_api_hook', 'auto_find_and_hook', 'intercept_and_redirect', 'diagnose_networking'],
+                       choices=['combined', 'cert-only', 'logger', 'redirect', 'debug_logger', 'find_context', 'enumerate_modules', 'windows_net_hook', 'simple_winhttp_hook', 'corrected_hook', 'comprehensive_hook', 'check_processes', 'aws_bedrock_hook', 'socket_monitor', 'diagnostic', 'test_any_network', 'find_renderer', 'analyze_process_tree', 'renderer_hook', 'kiro_api_hook', 'auto_find_and_hook', 'intercept_and_redirect', 'diagnose_networking', 'socket_intercept', 'chromium_network_hook'],
                        help='Which hook set to inject (default: combined)')
     parser.add_argument('--list', 
                        action='store_true',
@@ -218,6 +359,11 @@ Examples:
     parser.add_argument('--process',
                        default='Kiro',
                        help='Process name or PID to attach to (default: Kiro)')
+    parser.add_argument('--spawn',
+                       action='store_true',
+                       help='Spawn Kiro with Frida (bypasses anti-debug)')
+    parser.add_argument('--kiro-path',
+                       help='Path to Kiro.exe (auto-detected if not provided)')
     
     args = parser.parse_args()
     
@@ -251,16 +397,49 @@ Examples:
         'kiro_api_hook': 'kiro_api_hook',
         'auto_find_and_hook': 'auto_find_and_hook',
         'intercept_and_redirect': 'intercept_and_redirect',
-        'diagnose_networking': 'diagnose_networking'
+        'diagnose_networking': 'diagnose_networking',
+        'socket_intercept': 'socket_intercept',
+        'chromium_network_hook': 'chromium_network_hook'
     }
     
     hook_file = hook_map.get(args.hook, 'combined')
     
-    if attacher.attach_and_inject(hook_type=hook_file):
-        attacher.run_interactive()
-        return 0
+    # SPAWN MODE: Start Kiro with Frida from the beginning
+    if args.spawn:
+        # Find Kiro executable
+        kiro_path = args.kiro_path
+        if not kiro_path:
+            print(f"{Colors.YELLOW}Auto-detecting Kiro.exe...{Colors.ENDC}")
+            kiro_path = attacher.find_kiro_executable()
+            
+            if not kiro_path:
+                print(f"{Colors.RED}✗ Could not find Kiro.exe{Colors.ENDC}")
+                print(f"Please specify path with --kiro-path")
+                return 1
+        
+        if not Path(kiro_path).exists():
+            print(f"{Colors.RED}✗ Kiro.exe not found at: {kiro_path}{Colors.ENDC}")
+            return 1
+        
+        # Load hook code for child process monitoring
+        hook_code = attacher.load_hook(hook_file)
+        if not hook_code:
+            return 1
+        
+        # Spawn and hook
+        if attacher.spawn_and_hook(kiro_path, hook_file):
+            attacher.run_spawn_interactive(hook_code)
+            return 0
+        else:
+            return 1
+    
+    # ATTACH MODE: Attach to running process (original behavior)
     else:
-        return 1
+        if attacher.attach_and_inject(hook_type=hook_file):
+            attacher.run_interactive()
+            return 0
+        else:
+            return 1
 
 if __name__ == '__main__':
     sys.exit(main())

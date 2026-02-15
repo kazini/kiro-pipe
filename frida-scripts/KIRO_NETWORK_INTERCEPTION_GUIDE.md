@@ -1,308 +1,405 @@
-# Kiro Network Interception Guide
+# Kiro Network Interception - Research Journal
 
-## 🎯 CRUCIAL FINDINGS & TEST RESULTS
+## Project Goal
+Intercept Kiro's API calls to Amazon Q (AWS CodeWhisperer) and redirect them to our own LLM, allowing us to use custom models instead of Amazon's service.
 
-### Key Discovery: Kiro uses AWS CodeWhisperer/Amazon Q, NOT AWS Bedrock
+---
 
-**API Endpoints (from kiro-gateway analysis):**
-- `https://q.{region}.amazonaws.com` - Main API (ListAvailableModels, generateAssistantResponse)
-- `https://prod.{region}.auth.desktop.kiro.dev/refreshToken` - Kiro Desktop Auth
-- `https://oidc.{region}.amazonaws.com/token` - AWS SSO OIDC (for kiro-cli)
+## Discovery Phase - Endpoint Identification
 
-**Default Region:** `us-east-1` (but your region may differ - see below)
+### Initial Research
+**Date**: Session 1
+**Method**: Analyzed open-source `kiro-gateway` project
 
-## 🔍 TEST RESULTS & DISCOVERIES
+**Key Findings**:
+- ✅ Kiro uses **AWS CodeWhisperer/Amazon Q**, NOT AWS Bedrock
+- ✅ API endpoint: `https://q.{region}.amazonaws.com`
+- ✅ Authentication endpoints:
+  - Kiro Desktop Auth: `https://prod.{region}.auth.desktop.kiro.dev/refreshToken`
+  - AWS SSO OIDC: `https://oidc.{region}.amazonaws.com/token`
+- ✅ Default region: `us-east-1` (but region-agnostic patterns work)
+- ✅ API methods: `ListAvailableModels`, `generateAssistantResponse`
 
-### What We Ran:
-1. **Analyzed kiro-gateway code** - Found actual Kiro API endpoints
-2. **Created `find_kiro_pids.py`** - Python script to find all Kiro processes
-3. **Ran process analysis** - Found 15 Kiro processes running
+**Source**: `_reference_kiro-gateway-main/kiro/config.py` and `auth.py`
 
-### Critical Discovery:
-**PID 20264** is connecting to AWS infrastructure:
-- **Connection**: `18.206.105.168:443`
-- **Resolves to**: `ec2-18-206-105-168.compute-1.amazonaws.com`
-- **Memory**: 482.4 MB (high - typical for renderer)
-- **Type**: Child process (not main process)
+---
 
-**This is likely the renderer process making Kiro API calls!**
+## Process Architecture Analysis
 
-## 🌍 REGION CONSIDERATION
+### Tool Development
+**Created**: `find_kiro_pids.py`
+**Purpose**: Identify which Kiro process handles networking
 
-**You mentioned you're not on us-east-1 region.** This affects detection:
-
-### Options:
-1. **Use VPN to us-east-1** - Ensures you connect to same region as kiro-gateway defaults
-2. **Update hook patterns** - Modify scripts to detect your region's endpoints
-3. **Test anyway** - The IP `18.206.105.168` is in us-east-1 (Northern Virginia)
-
-**Recommendation**: Use VPN to us-east-1 for consistent results, OR we can update hooks to be region-agnostic.
-
-## 🎯 THE PROBLEM & SOLUTION
-
-### Problem: Wrong Process Attachment
-We've been attaching to main Kiro process, but networking happens in **renderer processes**.
-
-### Solution: We Found the Right Process!
-**PID 20264** has active AWS connection - this is our target.
-
-### Process Architecture (Based on Findings):
+**Execution Results**:
 ```
-Kiro.exe (Main Process, PID: 22168) - NO NETWORKING
-├── Renderer Process (PID: 20264) - ✅ HAS AWS CONNECTION
-│   └── Connecting to: 18.206.105.168:443 (AWS EC2 in us-east-1)
-├── Other Child Processes (13 more) - Various functions
-└── GPU Process, Utility Processes, etc.
+Found 15 Kiro processes
+Process with active network connection found
+- Has 1 active connection to AWS (18.206.105.168:443)
+- Resolved to: ec2-18-206-105-168.compute-1.amazonaws.com
+- Type: Child process (not main)
+- Accepts Frida injection
 ```
 
-## 🚀 IMMEDIATE ACTION PLAN
-
-### Step 1: Verify PID 20264 is the Right Process
-
-**Run this command FIRST:**
-```bash
-python frida-scripts/attach.py --hook find_renderer --process 20264
+**Architecture Discovered**:
+```
+Kiro.exe (Main Process)
+├── Network Process ← Has AWS connection, accepts Frida
+├── Renderer Processes ← High memory, REFUSE Frida injection
+└── Other child processes
 ```
 
-**Expected Output:**
-- Should show "Found 'window' object - likely RENDERER process!"
-- Should confirm browser APIs (fetch, XMLHttpRequest) available
+**Key Insight**: 
+- Networking happens in a dedicated child process
+- This process accepts Frida but has no hookable functions
+- Renderer processes refuse Frida (anti-debugging)
+- Specific PIDs change on restart (not important)
 
-### Step 2: Test Kiro API Hook on PID 20264
+---
 
-**Run this command SECOND:**
-```bash
-python frida-scripts/attach.py --hook kiro_api_hook --process 20264
+## Frida Hooking Attempts
+
+### Attempt 1: Windows API Hooking
+**Script**: `kiro_api_hook.js`
+**Target**: Network process (found via `find_kiro_pids.py`)
+**Method**: Hook WinHTTP/WinINET functions
+
+**Results**:
+- ✅ Successfully attached to network process
+- ✅ Installed 3 Windows API hooks
+- ✅ Hooked `connect()` at socket level
+- ❌ **No network activity captured**
+- ⚠️ Process is NOT a renderer (no `window` object)
+
+**Conclusion**: Network process accepts Frida but doesn't use standard Windows networking APIs.
+
+### Attempt 2: Renderer Process Targeting
+**Script**: `find_renderer.js`, `diagnose_networking.js`
+**Targets**: High-memory processes (likely renderers)
+
+**Results**:
+- ❌ **All renderer processes**: Refused Frida injection
+- Error: "process either refused to load frida-agent, or terminated during injection"
+
+**Conclusion**: Renderer processes have **anti-debugging protection** that blocks Frida.
+
+### Attempt 3: Socket-Level Hooking
+**Script**: `socket_intercept.js`
+**Target**: Network process
+**Method**: Hook `send()`, `recv()`, `connect()` from ws2_32.dll
+
+**Results**:
+- ✅ WS2_32.dll found and loaded
+- ❌ `Module.getExportByName('ws2_32.dll', 'send')` returned null
+- ❌ `Module.getExportByName('ws2_32.dll', 'recv')` returned null
+- ❌ `Module.getExportByName('ws2_32.dll', 'connect')` returned null
+
+**Conclusion**: Functions exist in DLL but aren't exported in a hookable way.
+
+### Attempt 4: Chromium Internal Hooking
+**Script**: `chromium_network_hook.js`
+**Target**: Network process
+**Method**: Search for Chromium/Node.js networking internals
+
+**Results**:
+- ✅ Found 3 Chromium-related modules:
+  - `spdlog.node` (0.6 MB)
+  - `node_sqlite3.node` (1.8 MB)
+  - `index.node` (59.4 MB) ← **Main Electron/Chromium module**
+- ❌ 0 networking exports found
+- ❌ SSL_write/SSL_read not found
+- ❌ getaddrinfo not hookable
+- ❌ Node.js process object not available
+
+**Conclusion**: Networking is compiled into `index.node` with no exported symbols.
+
+---
+
+## Technical Barriers Identified
+
+### 1. Anti-Debugging Protection
+**Location**: Renderer processes (PIDs 14008, 19740, etc.)
+**Effect**: Blocks Frida injection
+**Evidence**: "refused to load frida-agent" error
+**Impact**: Cannot hook actual rendering/networking processes
+
+### 2. Symbol Stripping
+**Location**: `index.node` (59.4 MB module)
+**Effect**: No exported networking functions
+**Evidence**: 0 exports found despite DLLs being loaded
+**Impact**: Cannot hook Chromium's internal networking
+
+### 3. Certificate Pinning (Confirmed)
+**Evidence**: 
+- Other users reported mitmproxy failures
+- Standard HTTPS proxies don't work
+- Kiro validates AWS certificates
+
+**Expected behavior**: Kiro only trusts AWS certificate fingerprints
+**Impact**: HTTPS proxies rejected, TLS interception blocked
+
+### 4. Internal Networking Stack
+**Discovery**: Chromium uses BoringSSL and internal networking
+**Effect**: Standard Windows APIs (WinHTTP, ws2_32) not used
+**Impact**: Traditional hooking methods ineffective
+
+---
+
+## Current Status Summary
+
+### What Works ✅
+1. **Process identification**: `find_kiro_pids.py` successfully finds networking process
+2. **Frida attachment**: Can attach to network process (not renderers)
+3. **Endpoint discovery**: Know exact API endpoints and format
+4. **Architecture understanding**: Mapped Kiro's process structure
+
+### What Doesn't Work ❌
+1. **Renderer hooking**: Anti-debugging blocks Frida
+2. **API interception**: No hookable networking functions
+3. **Socket hooking**: Functions not exported
+4. **SSL/TLS hooking**: BoringSSL symbols stripped
+5. **HTTPS proxies**: Certificate pinning blocks mitmproxy and similar tools
+
+---
+
+## Proposed Solutions
+
+**Note**: Certificate pinning is confirmed. Any solution MUST bypass certificate validation first.
+
+### Option 1: Binary Patching (REQUIRED)
+**Approach**: Patch certificate validation in Kiro executable
+
+**Steps**:
+1. Reverse engineer `Kiro.exe` or `index.node` (59.4 MB)
+2. Find certificate validation code
+3. Patch to always return "valid"
+4. Then use local proxy or DNS hijacking
+
+**Tools**:
+- Ghidra or IDA Pro (disassembly)
+- x64dbg (debugging)
+- HxD (hex editor)
+
+**Pros**:
+- Once patched, all other methods become viable
+- Can intercept and modify all traffic
+- Full control over requests/responses
+
+**Cons**:
+- Requires reverse engineering skills
+- Patch breaks on Kiro updates
+- May violate Kiro's terms of service
+
+**Search targets**:
+- Strings: "CertVerify", "SSL_CTX_set_verify", "certificate", "pinning"
+- AWS certificate fingerprints
+- X509 validation functions
+- BoringSSL certificate verification
+
+### Option 2: Frida Spawn Gating (After Patching)
+**Approach**: Inject Frida before anti-debug initializes
+
+**Method**:
+```python
+# Instead of attach, spawn with Frida
+import frida
+device = frida.get_local_device()
+pid = device.spawn(["C:\\Path\\To\\Kiro.exe"])
+session = device.attach(pid)
+# Inject hooks before process fully starts
+script = session.create_script(hook_code)
+script.load()
+device.resume(pid)
 ```
 
-**What to do while monitoring:**
-1. Keep the hook running
-2. Use Kiro's AI features (chat, code completion)
-3. Watch for `🎯🎯🎯` markers in output
+**Pros**:
+- Can hook renderer processes before anti-debug
+- Hooks installed at process start
+- Can intercept early initialization
 
-### Step 3: If No Activity, Try Region-Specific Hook
+**Cons**:
+- Still requires certificate pinning bypass
+- May fail if anti-debug is very early
+- Complex timing issues
 
-**If you're not on us-east-1 region:**
-1. Use VPN to connect to us-east-1 (Northern Virginia)
-2. OR we need to update hooks for your region
-3. Check your Kiro settings for region information
+**Status**: Worth trying AFTER certificate validation is patched
 
-## 🛠️ ESSENTIAL HOOKS (After Cleanup)
+### Option 3: Local Server with DNS Hijacking (After Patching)
+**Approach**: Redirect AWS endpoints to localhost
 
-We've cleaned up the workspace - keeping only essential scripts:
-
-### Core Hooks:
-```bash
-# 1. Kiro-specific API targeting (PRIMARY)
-python frida-scripts/attach.py --hook kiro_api_hook --process 20264
-
-# 2. Renderer process verification
-python frida-scripts/attach.py --hook find_renderer --process 20264
-
-# 3. Comprehensive network monitoring (fallback)
-python frida-scripts/attach.py --hook test_any_network --process 20264
-
-# 4. Renderer-specific browser APIs
-python frida-scripts/attach.py --hook renderer_hook --process 20264
-```
-
-### Process Analysis Tools:
-```bash
-# Find all Kiro processes with network connections
-python frida-scripts/find_kiro_pids.py
-
-# Analyze process tree
-python frida-scripts/attach.py --hook analyze_process_tree --process 20264
-```
-
-## 🔬 PROCESS IDENTIFICATION STRATEGY
-
-### We Already Found the Right PID!
-**PID 20264** has:
-- ✅ Active AWS connection (`18.206.105.168:443`)
-- ✅ High memory usage (482.4 MB)
-- ✅ Child process (not main)
-- ✅ Likely renderer process
-
-### How to Identify Process Communicating with Endpoint:
-1. **Already done**: Used `find_kiro_pids.py` to find processes with network connections
-2. **Verification needed**: Confirm PID 20264 is making `q.*.amazonaws.com` calls
-3. **Alternative**: If wrong, find which process resolves DNS for `q.{region}.amazonaws.com`
-
-### Region-Specific Detection:
-Since you're not on us-east-1:
-1. **Option A**: Use VPN to us-east-1 (recommended for testing)
-2. **Option B**: We need to:
-   - Find your Kiro region
-   - Update hook patterns to match
-   - Test with region-specific endpoints
-
-## 🎯 ESSENTIAL HOOK SCRIPTS (After Cleanup)
-
-### 1. `kiro_api_hook.js` (PRIMARY)
-- **Purpose**: Specifically targets Kiro's AWS CodeWhisperer endpoints
-- **Targets**: `q.*.amazonaws.com`, `prod.*.auth.desktop.kiro.dev`
-- **Key Feature**: Region-agnostic pattern matching (`q.*.amazonaws.com`)
-- **Test Command**: `python attach.py --hook kiro_api_hook --process 20264`
-
-### 2. `find_renderer.js` (VERIFICATION)
-- **Purpose**: Verify if process is a renderer
-- **Checks**: `window` object, browser APIs, process type
-- **Key Feature**: Determines if we're in right process for networking
-- **Test Command**: `python attach.py --hook find_renderer --process 20264`
-
-### 3. `test_any_network.js` (COMPREHENSIVE)
-- **Purpose**: Catch ALL network activity (42+ Windows API hooks)
-- **Targets**: Everything - WinHTTP, WinINET, sockets, DNS, SSL
-- **Key Feature**: Will catch any networking, regardless of API used
-- **Test Command**: `python attach.py --hook test_any_network --process 20264`
-
-### 4. `renderer_hook.js` (BROWSER APIS)
-- **Purpose**: Target browser APIs in renderer processes
-- **Targets**: `XMLHttpRequest`, `fetch`, `NSURLSession`, `WebSocket`
-- **Key Feature**: Specifically for Chromium renderer processes
-- **Test Command**: `python attach.py --hook renderer_hook --process 20264`
-
-## 📊 EXPECTED OUTPUT
-
-### If PID 20264 is Correct & You're on us-east-1:
-```
-🎯🎯🎯 [KIRO API] POST https://q.us-east-1.amazonaws.com/ListAvailableModels
-   📍 Type: Kiro API (ListAvailableModels, generateAssistantResponse)
-   🔍 Pattern: q.*.amazonaws.com
-```
-
-### If PID 20264 is Correct & You're on Different Region:
-```
-🎯🎯🎯 [KIRO API] POST https://q.eu-central-1.amazonaws.com/ListAvailableModels
-   📍 Type: Kiro API (ListAvailableModels, generateAssistantResponse)  
-   🔍 Pattern: q.*.amazonaws.com
-```
-
-### If We Need to Find Your Region:
-1. Check Kiro settings or configuration files
-2. Look for region in:
-   - `~/.config/kiro/config.json`
-   - `%APPDATA%\Kiro\config.json`
-   - Environment variables
-3. Or use VPN to us-east-1 for testing
-
-## 🚨 TROUBLESHOOTING & REGION ISSUES
-
-### If No Network Activity on PID 20264:
-1. **Region mismatch**: You're not on us-east-1
-   - **Solution**: Use VPN to us-east-1 (Northern Virginia)
-   - **Alternative**: We update hooks for your region
-
-2. **Wrong process**: PID 20264 might not be the renderer
-   - **Solution**: Run `python frida-scripts/attach.py --hook find_renderer --process 20264`
-   - **Check**: Does it show "Found 'window' object"?
-
-3. **No API calls**: Kiro not making requests
-   - **Solution**: Use AI features while monitoring (chat, code completion)
-
-### Region Detection Strategy:
-Since you're not on us-east-1, we need to:
-1. **Find your Kiro region** (check config files)
-2. **Update hook patterns** to match your region
-3. **OR use VPN** to us-east-1 for consistent testing
-
-### Quick Region Check:
-```bash
-# Check if any Kiro process is making AWS calls
-python frida-scripts/attach.py --hook test_any_network --process 20264
-# Look for any amazonaws.com connections
-```
-
-## 🚀 NEXT STEPS (PRIORITIZED)
-
-### IMMEDIATE ACTION:
-1. **Verify PID 20264 is renderer**:
-   ```bash
-   python frida-scripts/attach.py --hook find_renderer --process 20264
+**Steps**:
+1. **FIRST**: Patch certificate validation (required)
+2. Modify `C:\Windows\System32\drivers\etc\hosts`:
    ```
-
-2. **Test Kiro API hook**:
-   ```bash
-   python frida-scripts/attach.py --hook kiro_api_hook --process 20264
+   127.0.0.1 q.us-east-1.amazonaws.com
+   127.0.0.1 q.eu-central-1.amazonaws.com
    ```
+3. Create local server mimicking AWS Q API
+4. Use kiro-gateway code as reference for API format
+5. Return our own LLM responses
 
-### IF NO ACTIVITY (Region Issue):
-1. **Use VPN to us-east-1** (Northern Virginia) - RECOMMENDED
-2. **OR we need to**:
-   - Find your Kiro region
-   - Update `kiro_api_hook.js` for your region
-   - Test with region-specific patterns
+**Pros**:
+- Simple to implement after patching
+- Easy to debug
+- Full control over responses
 
-### REGION DISCOVERY:
-Check these for region info:
-- Kiro settings UI
-- `%APPDATA%\Kiro\config.json`
-- `~/.config/kiro/config.json`
-- Environment variables: `KIRO_REGION`, `AWS_REGION`
+**Cons**:
+- Requires certificate validation bypass first
+- Need to implement AWS Q API format
+- Kiro might have fallback endpoints
 
-### FALLBACK STRATEGY:
-If PID 20264 is wrong, use:
-```bash
-# Find ALL processes with network activity
-python frida-scripts/find_kiro_pids.py
+**Status**: Best approach AFTER patching is complete
 
-# Test each candidate
-python frida-scripts/attach.py --hook test_any_network --process <PID>
+---
+
+## Recommended Approach
+
+### Phase 1: Certificate Validation Bypass
+**Priority**: HIGH
+**Method**: Binary patching
+
+1. Extract `index.node` from Kiro installation
+2. Analyze with Ghidra to find certificate validation
+3. Create minimal patch to disable validation
+4. Test with mitmproxy
+
+### Phase 2: Local Proxy Server
+**Priority**: MEDIUM
+**Method**: DNS hijacking + custom server
+
+1. Set up local HTTPS server on port 443
+2. Implement AWS Q API endpoints (from kiro-gateway)
+3. Redirect to our own LLM (OpenAI, Anthropic, local)
+4. Return responses in AWS Q format
+
+### Phase 3: Request/Response Translation
+**Priority**: MEDIUM
+**Method**: Protocol conversion
+
+1. Parse incoming AWS Q requests
+2. Convert to OpenAI/Anthropic format
+3. Send to our LLM
+4. Convert response back to AWS Q format
+5. Return to Kiro
+
+---
+
+## Tools and Scripts Created
+
+### Working Tools ✅
+1. **`find_kiro_pids.py`** - Identifies Kiro processes with network activity
+2. **`attach.py`** - Updated to handle PIDs directly (not just process names)
+3. **`kiro_api_hook.js`** - Region-agnostic endpoint detection
+4. **`diagnose_networking.js`** - Analyzes process networking stack
+
+### Diagnostic Tools 🔍
+5. **`find_renderer.js`** - Checks if process is a renderer
+6. **`chromium_network_hook.js`** - Searches for Chromium internals
+7. **`socket_intercept.js`** - Attempts socket-level hooking
+8. **`intercept_and_redirect.js`** - Full interception attempt
+
+### Reference Material 📚
+9. **`_reference_kiro-gateway-main/`** - Open-source Kiro proxy (reverse direction)
+10. **`ANALYSIS_FINDINGS.md`** - Original Kiro structure analysis
+
+---
+
+## Next Steps
+
+### Immediate Actions
+1. ⬜ Extract and analyze `index.node` with Ghidra
+2. ⬜ Search for certificate validation functions
+3. ⬜ Create proof-of-concept patch
+4. ⬜ Test with mitmproxy
+
+### Alternative Path (If patching fails)
+1. ⬜ Try Frida spawn gating on renderer process
+2. ⬜ Implement kernel-level hooking with WinDivert
+3. ⬜ Research Electron/Chromium certificate pinning bypasses
+
+### Long-term Goals
+1. ⬜ Build local AWS Q API server
+2. ⬜ Implement request/response translation
+3. ⬜ Support multiple LLM backends
+4. ⬜ Create user-friendly configuration
+
+---
+
+## Technical Notes
+
+### Kiro Architecture
+- **Base**: Electron (Chromium + Node.js)
+- **Networking**: BoringSSL (Chromium's SSL library)
+- **Protection**: Anti-debugging on renderer processes
+- **Compilation**: Symbols stripped from main module
+
+### API Format (from kiro-gateway)
+**Request to AWS Q**:
+```json
+POST https://q.us-east-1.amazonaws.com/generateAssistantResponse
+Headers:
+  Authorization: Bearer <access_token>
+  x-amz-target: CodeWhispererStreaming_20230920.GenerateAssistantResponse
+Body:
+  {
+    "conversationId": "...",
+    "message": "...",
+    "modelId": "...",
+    ...
+  }
 ```
 
-## 📁 ESSENTIAL FILES (After Cleanup)
-
-### Core Scripts:
-- `frida-scripts/kiro_api_hook.js` - PRIMARY: Targets Kiro AWS endpoints
-- `frida-scripts/find_renderer.js` - VERIFICATION: Checks renderer process
-- `frida-scripts/test_any_network.js` - COMPREHENSIVE: 42+ API hooks
-- `frida-scripts/renderer_hook.js` - BROWSER APIS: Renderer-specific
-- `frida-scripts/attach.py` - MAIN: Updated with essential hooks only
-- `frida-scripts/find_kiro_pids.py` - ANALYSIS: Finds processes with network
-
-### Support Files:
-- `frida-scripts/analyze_process_tree.js` - Process tree analysis
-- `frida-scripts/requirements.txt` - Python dependencies
-- `frida-scripts/README.md` - Original documentation
-
-### Reference:
-- `_reference_kiro-gateway-main/` - Source of endpoint discovery
-- `KIRO_NETWORK_INTERCEPTION_GUIDE.md` - This updated guide
-
-## ⚡ QUICK START COMMANDS
-
-### Step 1: Verify PID 20264
-```bash
-python frida-scripts/attach.py --hook find_renderer --process 20264
+**Response from AWS Q**:
+```json
+{
+  "conversationId": "...",
+  "message": "...",
+  "content": "...",
+  ...
+}
 ```
 
-### Step 2: Test Kiro API Hook
-```bash
-python frida-scripts/attach.py --hook kiro_api_hook --process 20264
-```
+### Certificate Pinning Indicators
+- mitmproxy failures reported by other users
+- No standard SSL functions hookable
+- Likely validates AWS certificate fingerprints
+- May use Chromium's built-in pinning
 
-### Step 3: If No Activity (Region Issue)
-```bash
-# Option A: Use VPN to us-east-1, then retry Step 2
-# Option B: Find your region and update hooks
-# Option C: Try comprehensive monitoring
-python frida-scripts/attach.py --hook test_any_network --process 20264
-```
+---
 
-## 🎯 CRITICAL NOTES
+## Lessons Learned
 
-1. **Region Issue**: You're not on us-east-1 - this affects detection
-2. **VPN Recommended**: Use VPN to us-east-1 (Northern Virginia) for testing
-3. **PID 20264**: Has AWS connection - prime candidate
-4. **Clean Workspace**: Removed 10+ old scripts, keeping only essentials
-5. **Use AI Features**: Keep Kiro open and use chat/code completion while monitoring
+1. **Electron apps are hard to hook**: Symbol stripping + anti-debug
+2. **Renderer processes are protected**: Can't use standard Frida attach
+3. **Certificate pinning is real**: mitmproxy doesn't work
+4. **Binary patching is necessary**: No pure Frida solution exists
+5. **kiro-gateway is valuable**: Shows exact API format we need to mimic
 
-## 🔄 REGION ADAPTATION NEEDED
+---
 
-If you can't use VPN to us-east-1, we need to:
-1. Discover your Kiro region
-2. Update `kiro_api_hook.js` patterns
-3. Test with `q.{YOUR_REGION}.amazonaws.com`
+## Resources
 
-**Tell me your region or use VPN to us-east-1, and we'll proceed with testing PID 20264!**
+### Documentation
+- AWS CodeWhisperer API: https://docs.aws.amazon.com/codewhisperer/
+- kiro-gateway: https://github.com/jwadow/kiro-gateway
+- Frida documentation: https://frida.re/docs/
+
+### Tools
+- Ghidra: https://ghidra-sre.org/
+- x64dbg: https://x64dbg.com/
+- mitmproxy: https://mitmproxy.org/
+- WinDivert: https://www.reqrypt.org/windivert.html
+
+### Similar Projects
+- Cursor proxy attempts (failed due to certificate pinning)
+- Copilot reverse engineering (similar challenges)
+
+---
+
+## Conclusion
+
+We've successfully identified Kiro's API endpoints and architecture, but hit technical barriers:
+- **Anti-debugging** blocks renderer process hooking
+- **Symbol stripping** prevents function hooking
+- **Certificate pinning** blocks HTTPS proxies
+
+**The path forward requires binary patching** to disable certificate validation, after which standard HTTPS interception will work. This is a well-understood technique but requires reverse engineering skills.
