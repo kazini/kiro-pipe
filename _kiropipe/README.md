@@ -1,113 +1,241 @@
-# KiroPipe Module Structure
+# KiroPipe
 
-## Overview
-KiroPipe intercepts Kiro's AWS Q API traffic and enables custom LLM backend usage.
+Intercept Kiro's AWS Q API traffic and redirect to custom LLM backends.
+
+## What It Does
+
+- Intercepts Kiro's network traffic via proxy
+- Translates AWS Q format to standard LLM APIs
+- Supports Anthropic, OpenAI, Ollama, Groq, and 100+ providers
+- Works without modifying Kiro binaries
+- Runs local models or cloud APIs
+
+## Quick Start
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Run with Kiro's default models
+python kiropipe.py
+
+# Configure custom LLM (optional)
+cp _kiropipe/kiropipe_config.yaml.example _kiropipe/kiropipe_config.yaml
+# Edit config, then run again
+```
+
+## Features
+
+- **Multiple Providers**: Anthropic, OpenAI, Ollama, Groq, 100+ via LiteLLM
+- **Model Aliases**: Use short names like "claude" or "llama"
+- **Session Tracking**: Monitor usage per conversation
+- **Auto-Install**: Checks and installs missing dependencies
+- **Debug Mode**: Capture and analyze traffic
+- **Free Options**: Ollama (local) or Groq (cloud, 14k req/day)
+
+## Configuration
+
+Edit `_kiropipe/kiropipe_config.yaml`:
+
+```yaml
+# Use Kiro's default models (no changes needed)
+default_model: "kiro-default"
+
+# Or use Anthropic Claude
+providers:
+  anthropic:
+    enabled: true
+    api_key: "your-key"
+    models:
+      - name: "claude-3-5-sonnet-20241022"
+        alias: ["claude"]
+
+default_model: "claude"
+
+# Or use local Ollama
+providers:
+  litellm:
+    enabled: true
+    ollama:
+      api_base: "http://localhost:11434"
+      models:
+        - name: "ollama/llama3.2"
+          alias: ["llama"]
+
+default_model: "llama"
+```
 
 ## Directory Structure
 
 ```
 _kiropipe/
-├── engine/              # Core functionality (required for bridge)
-│   ├── decode_event_stream.py      # Decodes AWS Event Stream binary format
-│   ├── event_stream_encoder.py     # Encodes responses to AWS Event Stream
-│   └── reconstruct_messages.py     # Reconstructs full messages from events
+├── engine/              # Core functionality
+│   ├── bridge_server.py         # API bridge server
+│   ├── config_loader.py         # Configuration management
+│   ├── decode_event_stream.py   # AWS Event Stream decoder
+│   ├── event_stream_encoder.py  # AWS Event Stream encoder
+│   ├── request_translator.py    # AWS Q → LLM format
+│   ├── response_translator.py   # LLM → AWS Event Stream
+│   └── requirements.txt         # Dependencies
 │
-├── tools/               # Development and testing utilities
-│   ├── test_encoder.py             # Tests encoder/decoder functionality
-│   ├── analyze_interaction_pattern.py  # Analyzes request/response patterns
-│   └── [frida scripts and other dev tools]
+├── devtools/            # Development tools (not in releases)
+│   ├── analyze_traffic.py       # Traffic analyzer
+│   ├── test_system.py           # System tester
+│   ├── inject_to_kiro.py        # Message injection
+│   └── README.md                # Tool documentation
 │
-├── debug_logs/          # Debug output (created when DEBUG_MODE=True)
+├── debug_logs/          # Debug output (when enabled)
 │   └── interactions/
 │       ├── posted/      # Captured requests
 │       └── responses/   # Captured responses
 │
-├── BRIDGE_DESIGN.md     # API bridge architecture documentation
-├── bridge_requirements.txt  # Python dependencies for bridge
-└── KIROPIPE_DEV_JOURNAL.md  # Development history
-
+├── kiropipe_config.yaml         # Configuration file
+├── KIROPIPE_DEV_JOURNAL.md      # Development history
+└── README.md                    # This file
 ```
 
-## Core Engine Scripts
+## How It Works
 
-### decode_event_stream.py
-Decodes AWS Event Stream binary responses to JSON format.
+```
+User → Kiro → kiropipe.py (proxy) → Bridge Server → LLM API
+                                         ↓
+                                    Translates formats
+                                         ↓
+                                    AWS Event Stream
+                                         ↓
+                                    Back to Kiro
+```
 
-**Usage**:
+1. Kiro sends AWS Q format request
+2. Proxy intercepts and forwards to bridge
+3. Bridge translates to LLM format (Anthropic/OpenAI)
+4. LLM responds with streaming data
+5. Bridge translates back to AWS Event Stream binary
+6. Kiro receives and displays response
+
+## Supported Backends
+
+### Direct APIs
+- **Anthropic Claude** - Primary supported mode
+- **OpenAI GPT** - Direct API support
+
+### Via LiteLLM (100+ providers)
+- **Ollama** - Local models (free)
+- **Groq** - Cloud, free tier (14,400 req/day)
+- **Together AI** - Cloud with free credits
+- **OpenRouter** - Access to multiple models
+- And 100+ more providers
+
+## Free Options
+
+### Local (No API Key)
+- Ollama + Llama 3.2 (2-8GB models)
+- Ollama + Qwen 2.5 Coder (coding-focused)
+- LM Studio
+
+### Cloud (Free Tier)
+- Groq (14,400 requests/day)
+- Together AI (free credits)
+- OpenRouter (free models)
+
+## Configuration Options
+
+### Proxy Settings
+```yaml
+proxy:
+  port: 29974  # Proxy port
+
+kiro:
+  exe_path: null  # Auto-detect or custom path
+```
+
+### Kiro Endpoint Control
+```yaml
+kiro_endpoint:  # TRUE=allow, FALSE=block
+  telemetry: false  # Block telemetry
+  updates: false    # Block updates
+  models: true      # Allow Kiro models
+  force_toggle_usage_limits: null  # Auto mode
+```
+
+### Debug Settings
+```yaml
+debug:
+  debug_mode_enabled: true          # Console logging
+  store_interaction_blocks: false   # Save to files
+```
+
+## API Endpoints
+
+When bridge server is running:
+
+- `POST /generateAssistantResponse` - Main API (mimics AWS Q)
+- `GET /health` - Server status + statistics
+- `GET /config` - Current configuration
+- `GET /stats` - Detailed usage per session
+
+## Development
+
+### Run Tests
 ```bash
-python _kiropipe/engine/decode_event_stream.py
+python _kiropipe/devtools/test_system.py
 ```
 
-**Purpose**: Analyzes captured binary responses and extracts events (text chunks, tool uses, metering, context usage).
-
-### event_stream_encoder.py
-Encodes responses into AWS Event Stream binary format.
-
-**Usage**:
+### Analyze Traffic
 ```bash
-python _kiropipe/engine/event_stream_encoder.py
+python _kiropipe/devtools/analyze_traffic.py _kiropipe/debug_logs/interactions
 ```
 
-**Purpose**: Core component for the API bridge - converts LLM responses back to Kiro-compatible format.
-
-**Functions**:
-- `encode_event()` - Main event encoder
-- `encode_text_chunk()` - Encode text content
-- `encode_tool_use_chunk()` - Encode tool calls
-- `encode_metering()` - Encode usage metrics
-- `encode_context_usage()` - Encode context percentage
-- `encode_streaming_response()` - Build complete streaming response
-
-### reconstruct_messages.py
-Reconstructs full AI messages from decoded event streams.
-
-**Usage**:
+### Inject Test Messages
 ```bash
-python _kiropipe/engine/reconstruct_messages.py
+python _kiropipe/devtools/inject_to_kiro.py "Test message"
 ```
 
-**Purpose**: Concatenates text chunks and displays complete messages with metadata.
+See `_kiropipe/devtools/README.md` for all development tools.
 
-## Development Tools
+## Troubleshooting
 
-### test_encoder.py
-Tests the encoder/decoder round-trip and validates format against captured responses.
-
-**Usage**:
+### Dependencies Missing
 ```bash
-python _kiropipe/tools/test_encoder.py
+# Auto-install when prompted, or manually:
+pip install -r _kiropipe/requirements.txt
 ```
 
-**Tests**:
-1. Round-trip encoding/decoding
-2. Binary structure analysis
-3. Comparison with captured AWS Q responses
-
-### analyze_interaction_pattern.py
-Analyzes request/response patterns to detect multi-step processing.
-
-**Usage**:
+### Ollama Connection Failed
 ```bash
-python _kiropipe/tools/analyze_interaction_pattern.py
+# Check if Ollama is running
+ollama list
+
+# Start if needed
+ollama serve
 ```
 
-**Purpose**: Determines if AWS Q does additional processing or direct LLM calls.
+### No Response in Kiro
+1. Check bridge server is running
+2. Verify config has correct model enabled
+3. Check debug logs in `_kiropipe/debug_logs/`
 
-## Running KiroPipe
+## Documentation
 
-Main launcher (in project root):
-```bash
-python kiropipe.py [port]
-```
+- **KIROPIPE_DEV_JOURNAL.md** - Development history and technical details
+- **devtools/README.md** - Development tools documentation
+- **kiropipe_config.yaml.example** - Configuration examples
 
-**Configuration** (edit top of kiropipe.py):
-- `DEFAULT_PORT` - Proxy port (default: 29974)
-- `KIRO_EXE_PATH` - Custom Kiro.exe path (or None for auto-detect)
-- `BLOCK_TELEMETRY` - Block telemetry (default: True)
-- `BLOCK_UPDATES` - Block update checks (default: True)
-- `BLOCK_USAGE_LIMITS` - Block usage limits (default: True)
-- `DEBUG_MODE` - Enable detailed logging (default: True)
+## Requirements
 
-## Next Steps
+- Python 3.8+
+- Windows (tested on Windows 11)
+- mitmproxy
+- psutil
+- httpx
+- pyyaml
+- FastAPI (for bridge server)
+- LiteLLM (optional, for universal LLM support)
 
-See `BRIDGE_DESIGN.md` for the API bridge implementation plan.
+## License
+
+Educational and research purposes.
+
+## Disclaimer
+
+This tool intercepts and modifies network traffic. Use responsibly and in accordance with applicable terms of service.

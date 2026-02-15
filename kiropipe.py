@@ -4,6 +4,107 @@ import sys
 import time
 import os
 from pathlib import Path
+
+# ============================================================
+# DEPENDENCY CHECK
+# ============================================================
+def check_dependencies():
+    """Check and install/upgrade dependencies from requirements.txt"""
+    requirements_file = Path(__file__).parent / "_kiropipe" / "requirements.txt"
+    
+    if not requirements_file.exists():
+        print(f"WARNING: requirements.txt not found at {requirements_file}")
+        return
+    
+    print("Checking dependencies...")
+    
+    try:
+        import pkg_resources
+        
+        # Read requirements
+        with open(requirements_file, 'r') as f:
+            requirements = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+        
+        missing = []
+        outdated = []
+        
+        for requirement in requirements:
+            if not requirement:
+                continue
+            
+            try:
+                pkg_resources.require(requirement)
+            except pkg_resources.DistributionNotFound:
+                missing.append(requirement)
+            except pkg_resources.VersionConflict as e:
+                outdated.append((requirement, str(e)))
+        
+        if missing or outdated:
+            print("\n" + "="*60)
+            print("DEPENDENCY ISSUES DETECTED")
+            print("="*60)
+            
+            if missing:
+                print("\nMissing packages:")
+                for pkg in missing:
+                    print(f"  - {pkg}")
+            
+            if outdated:
+                print("\nOutdated packages:")
+                for pkg, error in outdated:
+                    print(f"  - {pkg}")
+                    print(f"    {error}")
+            
+            print("\nOptions:")
+            print("  1. Auto-install/upgrade all packages")
+            print("  2. Show manual install commands and exit")
+            print("  3. Continue anyway (may cause errors)")
+            
+            choice = input("\nEnter choice (1-3): ").strip()
+            
+            if choice == '1':
+                print("\nInstalling/upgrading packages...")
+                try:
+                    subprocess.check_call([
+                        sys.executable, '-m', 'pip', 'install', '--upgrade',
+                        '-r', str(requirements_file)
+                    ])
+                    print("\n[OK] All dependencies installed successfully!")
+                    print("Please restart the script.\n")
+                    sys.exit(0)
+                except subprocess.CalledProcessError as e:
+                    print(f"\n[ERROR] Failed to install dependencies: {e}")
+                    print("Please install manually and try again.")
+                    sys.exit(1)
+            
+            elif choice == '2':
+                print("\nTo fix, run:")
+                print(f"  pip install -r {requirements_file}")
+                print("\nOr install/upgrade individually:")
+                for pkg in missing + [p for p, _ in outdated]:
+                    print(f"  pip install --upgrade {pkg}")
+                print()
+                sys.exit(1)
+            
+            elif choice == '3':
+                print("\nContinuing without fixing dependencies...")
+                print("Warning: This may cause errors!\n")
+            
+            else:
+                print("\nInvalid choice. Exiting.")
+                sys.exit(1)
+        
+        else:
+            print("All dependencies satisfied.\n")
+        
+    except ImportError:
+        print("WARNING: pkg_resources not available, skipping dependency check")
+    except Exception as e:
+        print(f"WARNING: Dependency check failed: {e}")
+
+# Check dependencies before importing anything else
+check_dependencies()
+
 from mitmproxy import http
 from mitmproxy.tools.main import mitmdump
 import json
@@ -13,22 +114,21 @@ import threading
 KiroPipe || Proxies Kiro and enables custom API use.
 > Uses _kiropipe folder.
 Usage: python kiropipe.py [port]
-Default port: 29974
+
+Configuration: Edit _kiropipe/kiropipe_config.yaml
 """
 #
 # ============================================================
-# CONFIGURATION
+# HARDCODED DEFAULTS (overridden by config file if present)
 # ============================================================
 DEFAULT_PORT = 29974
 KIRO_EXE_PATH = None  # Set to custom path or None to auto-detect
-BLOCK_TELEMETRY = True  # Block telemetry (metrics/traces)
-BLOCK_UPDATES = True  # Block update checks
-BLOCK_USAGE_LIMITS = False  # Block kiro credit usage limit checks
-DEBUG_MODE = False  # Show detailed output and save to files
-
-# Bridge configuration
-ENABLE_BRIDGE = False  # Enable API bridge (forward to local LLM)
-BRIDGE_URL = 'http://localhost:8000'  # Bridge server URL
+ALLOW_TELEMETRY = False  # FALSE = block
+ALLOW_UPDATES = False  # FALSE = block
+FORCE_TOGGLE_USAGE_LIMITS = None  # None=auto, True=always allow, False=always block
+DEBUG_MODE_ENABLED = True  # Show detailed output
+DEBUG_STORE_INTERACTION_BLOCKS = False  # Save requests/responses to files
+ALLOW_KIRO_MODELS = True  # TRUE = allow Kiro's default models
 # ============================================================
 #
 #
@@ -52,7 +152,47 @@ INJECTION_QUEUE_FILE = KIROPIPE_DIR / "debug_logs" / ".injection_queue.json"
 # Add _kiropipe to Python path for module imports
 sys.path.insert(0, str(KIROPIPE_DIR))
 
-if DEBUG_MODE:
+# Load configuration
+from engine.config_loader import load_config
+CONFIG = load_config(KIROPIPE_DIR / 'kiropipe_config.yaml')
+
+# Override hardcoded values with config file values
+DEFAULT_PORT = CONFIG.get('proxy.port', DEFAULT_PORT)
+KIRO_EXE_PATH = CONFIG.get('kiro.exe_path', KIRO_EXE_PATH)
+ALLOW_TELEMETRY = CONFIG.get('kiro_endpoint.telemetry', ALLOW_TELEMETRY)
+ALLOW_UPDATES = CONFIG.get('kiro_endpoint.updates', ALLOW_UPDATES)
+FORCE_TOGGLE_USAGE_LIMITS = CONFIG.get('kiro_endpoint.force_toggle_usage_limits', FORCE_TOGGLE_USAGE_LIMITS)
+DEBUG_MODE_ENABLED = CONFIG.get('debug.debug_mode_enabled', DEBUG_MODE_ENABLED)
+DEBUG_STORE_INTERACTION_BLOCKS = CONFIG.get('debug.store_interaction_blocks', DEBUG_STORE_INTERACTION_BLOCKS)
+ALLOW_KIRO_MODELS = CONFIG.get('kiro_endpoint.models', ALLOW_KIRO_MODELS)
+
+# Current model being used (for dynamic usage limits)
+CURRENT_MODEL = CONFIG.get_default_model()
+
+if DEBUG_STORE_INTERACTION_BLOCKS:
+    RESPONSES_DIR.mkdir(parents=True, exist_ok=True)
+    POSTED_DIR.mkdir(parents=True, exist_ok=True)
+# Add _kiropipe to Python path for module imports (moved before config loading)
+sys.path.insert(0, str(KIROPIPE_DIR))
+
+# Load configuration
+from engine.config_loader import load_config
+CONFIG = load_config(KIROPIPE_DIR / 'kiropipe_config.yaml')
+
+# Override hardcoded values with config file values
+DEFAULT_PORT = CONFIG.get('proxy.port', DEFAULT_PORT)
+KIRO_EXE_PATH = CONFIG.get('kiro.exe_path', KIRO_EXE_PATH)
+ALLOW_TELEMETRY = CONFIG.get('kiro_endpoint.telemetry', ALLOW_TELEMETRY)
+ALLOW_UPDATES = CONFIG.get('kiro_endpoint.updates', ALLOW_UPDATES)
+FORCE_TOGGLE_USAGE_LIMITS = CONFIG.get('kiro_endpoint.force_toggle_usage_limits', FORCE_TOGGLE_USAGE_LIMITS)
+DEBUG_MODE_ENABLED = CONFIG.get('debug.debug_mode_enabled', DEBUG_MODE_ENABLED)
+DEBUG_STORE_INTERACTION_BLOCKS = CONFIG.get('debug.store_interaction_blocks', DEBUG_STORE_INTERACTION_BLOCKS)
+ALLOW_KIRO_MODELS = CONFIG.get('kiro_endpoint.models', ALLOW_KIRO_MODELS)
+
+# Current model being used (for dynamic usage limits)
+CURRENT_MODEL = CONFIG.get_default_model()
+
+if DEBUG_STORE_INTERACTION_BLOCKS:
     RESPONSES_DIR.mkdir(parents=True, exist_ok=True)
     POSTED_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -60,17 +200,18 @@ class KiroInterceptor:
     def __init__(self):
         self.request_count = 0
         self.aws_requests = []
-        self.save_to_file = DEBUG_MODE
+        self.save_to_file = DEBUG_STORE_INTERACTION_BLOCKS
         self.telemetry_blocked = 0
+        self.current_model = CURRENT_MODEL
 
     def request(self, flow: http.HTTPFlow) -> None:
         """Intercept all requests"""
         self.request_count += 1
         
-        # Block telemetry (any region, metrics or traces)
-        if BLOCK_TELEMETRY and 'telemetry' in flow.request.pretty_host:
+        # Block telemetry if not allowed
+        if not ALLOW_TELEMETRY and 'telemetry' in flow.request.pretty_host:
             self.telemetry_blocked += 1
-            if DEBUG_MODE:
+            if DEBUG_MODE_ENABLED:
                 print(f"\n[BLOCKED TELEMETRY #{self.telemetry_blocked}] {flow.request.pretty_url}")
             flow.response = http.Response.make(
                 200,
@@ -79,9 +220,9 @@ class KiroInterceptor:
             )
             return
         
-        # Block update checks
-        if BLOCK_UPDATES and 'metadata-win32' in flow.request.path:
-            if DEBUG_MODE:
+        # Block update checks if not allowed
+        if not ALLOW_UPDATES and 'metadata-win32' in flow.request.path:
+            if DEBUG_MODE_ENABLED:
                 print(f"\n[BLOCKED UPDATE CHECK] {flow.request.pretty_url}")
             flow.response = http.Response.make(
                 200,
@@ -90,10 +231,12 @@ class KiroInterceptor:
             )
             return
         
-        # Block usage limits (optional - may break features)
-        if BLOCK_USAGE_LIMITS and 'getUsageLimits' in flow.request.path:
-            if DEBUG_MODE:
+        # Dynamic usage limits blocking
+        should_block_limits = CONFIG.should_block_usage_limits(self.current_model)
+        if should_block_limits and 'getUsageLimits' in flow.request.path:
+            if DEBUG_MODE_ENABLED:
                 print(f"\n[BLOCKED USAGE LIMITS] {flow.request.pretty_url}")
+                print(f"  Current model: {self.current_model}")
             flow.response = http.Response.make(
                 200,
                 b'{"limits":[],"subscriptionInfo":{"type":"FREE"}}',
@@ -101,43 +244,94 @@ class KiroInterceptor:
             )
             return
         
-        # Forward to bridge if enabled and it's a generateAssistantResponse request
-        if ENABLE_BRIDGE and 'generateAssistantResponse' in flow.request.path:
-            if DEBUG_MODE:
-                print(f"\n[BRIDGE] Forwarding request to {BRIDGE_URL}")
+        # Block Kiro models if not allowed
+        if not ALLOW_KIRO_MODELS and 'generateAssistantResponse' in flow.request.path:
+            # Check if we have any custom providers enabled
+            custom_providers = [p for p in CONFIG.get_enabled_providers() if p != 'kiro']
             
-            try:
-                import httpx
+            if not custom_providers:
+                if DEBUG_MODE_ENABLED:
+                    print(f"\n[ERROR] Kiro models blocked but no custom providers enabled!")
+                    print(f"  Enable a custom provider in config or set kiro_endpoint.models: true")
+                flow.response = http.Response.make(
+                    503,
+                    b'{"error":"Kiro models blocked and no custom providers configured"}',
+                    {"Content-Type": "application/json"}
+                )
+                return
+            
+            # Forward to custom provider (handled below)
+            if DEBUG_MODE_ENABLED:
+                print(f"\n[KIRO MODELS BLOCKED] Forwarding to custom provider")
+        
+        # Check if request should be allowed (all blocking enabled = nothing through)
+        if not CONFIG.should_allow_request(flow.request.path, self.current_model):
+            if DEBUG_MODE_ENABLED:
+                print(f"\n[BLOCKED ALL] All traffic blocked by configuration")
+                print(f"  Telemetry: {ALLOW_TELEMETRY}, Updates: {ALLOW_UPDATES}")
+                print(f"  Kiro models: {ALLOW_KIRO_MODELS}, Usage limits: {should_block_limits}")
+            flow.response = http.Response.make(
+                503,
+                b'{"error":"All traffic blocked by configuration"}',
+                {"Content-Type": "application/json"}
+            )
+            return
+        
+        # Route to custom provider if not using Kiro passthrough
+        if 'generateAssistantResponse' in flow.request.path:
+            model_info = CONFIG.get_model_info(self.current_model)
+            
+            if model_info and model_info['provider'] != 'kiro':
+                # Forward to custom provider
+                provider_name = model_info['provider']
+                provider_config = CONFIG.get_provider_config(provider_name)
                 
-                # Forward request to bridge with streaming
-                with httpx.Client(timeout=300.0) as client:
-                    bridge_response = client.post(
-                        f"{BRIDGE_URL}/generateAssistantResponse",
-                        content=flow.request.content,
-                        headers={
-                            'Content-Type': 'application/json',
-                        }
-                    )
+                if DEBUG_MODE_ENABLED:
+                    print(f"\n[CUSTOM PROVIDER] Routing to {provider_name}")
+                    print(f"  Model: {model_info['model']['name']}")
+                
+                try:
+                    import httpx
                     
-                    # Create response with bridge data
+                    # Get bridge URL from provider config or use default
+                    bridge_url = provider_config.get('bridge_url', 'http://localhost:8000')
+                    
+                    # Forward request to bridge with streaming
+                    with httpx.Client(timeout=300.0) as client:
+                        bridge_response = client.post(
+                            f"{bridge_url}/generateAssistantResponse",
+                            content=flow.request.content,
+                            headers={
+                                'Content-Type': 'application/json',
+                                'X-Model': self.current_model  # Pass model to bridge
+                            }
+                        )
+                        
+                        # Create response with bridge data
+                        flow.response = http.Response.make(
+                            bridge_response.status_code,
+                            bridge_response.content,
+                            dict(bridge_response.headers)
+                        )
+                        
+                        if DEBUG_MODE_ENABLED:
+                            print(f"[CUSTOM PROVIDER] Response received: {bridge_response.status_code} ({len(bridge_response.content)} bytes)")
+                        
+                        return
+                    
+                except Exception as e:
+                    if DEBUG_MODE_ENABLED:
+                        print(f"[CUSTOM PROVIDER] Error: {e}")
+                        import traceback
+                        traceback.print_exc()
+                    
+                    # Return error response
                     flow.response = http.Response.make(
-                        bridge_response.status_code,
-                        bridge_response.content,
-                        dict(bridge_response.headers)
+                        503,
+                        json.dumps({'error': f'Custom provider error: {str(e)}'}).encode(),
+                        {"Content-Type": "application/json"}
                     )
-                    
-                    if DEBUG_MODE:
-                        print(f"[BRIDGE] Response received: {bridge_response.status_code} ({len(bridge_response.content)} bytes)")
-                    
                     return
-                
-            except Exception as e:
-                if DEBUG_MODE:
-                    print(f"[BRIDGE] Error: {e}")
-                    import traceback
-                    traceback.print_exc()
-                # Fall through to normal AWS Q request if bridge fails
-                pass
         
         # Check for injected responses (no flag needed - just check if queue exists)
         if 'generateAssistantResponse' in flow.request.path and INJECTION_QUEUE_FILE.exists():
@@ -149,7 +343,7 @@ class KiroInterceptor:
                     # Get the first item from queue
                     injection = queue_data.pop(0)
                     
-                    if DEBUG_MODE:
+                    if DEBUG_MODE_ENABLED:
                         print(f"\n[INJECT] Using queued response")
                         print(f"[INJECT] Message: {injection.get('text', 'unknown')}")
                     
@@ -167,7 +361,7 @@ class KiroInterceptor:
                         }
                     )
                     
-                    if DEBUG_MODE:
+                    if DEBUG_MODE_ENABLED:
                         print(f"[INJECT] Injected {len(injected_binary)} bytes")
                         if injection.get('include_tool'):
                             print(f"[INJECT] Includes tool call")
@@ -175,17 +369,17 @@ class KiroInterceptor:
                     # Update the queue file (remove the used injection)
                     if len(queue_data) > 0:
                         INJECTION_QUEUE_FILE.write_text(json.dumps(queue_data, indent=2))
-                        if DEBUG_MODE:
+                        if DEBUG_MODE_ENABLED:
                             print(f"[INJECT] {len(queue_data)} injection(s) remaining in queue")
                     else:
                         INJECTION_QUEUE_FILE.unlink()
-                        if DEBUG_MODE:
+                        if DEBUG_MODE_ENABLED:
                             print(f"[INJECT] Queue empty, file deleted")
                     
                     return
                 
             except Exception as e:
-                if DEBUG_MODE:
+                if DEBUG_MODE_ENABLED:
                     print(f"[INJECT] Error reading queue: {e}")
                     import traceback
                     traceback.print_exc()
@@ -202,7 +396,7 @@ class KiroInterceptor:
                 'path': flow.request.path
             })
 
-            if DEBUG_MODE:
+            if DEBUG_MODE_ENABLED:
                 print(f"\n{'='*60}")
                 print(f"[AWS REQUEST #{len(self.aws_requests)}]")
                 print(f"{'='*60}")
@@ -222,7 +416,7 @@ class KiroInterceptor:
                 try:
                     body = flow.request.text
                     
-                    if DEBUG_MODE:
+                    if DEBUG_MODE_ENABLED:
                         print(f"\nBody ({len(flow.request.content)} bytes):")
                         # Try to parse as JSON for pretty printing
                         try:
@@ -250,16 +444,16 @@ class KiroInterceptor:
                                 'body': body
                             }, f, indent=2)
                 except:
-                    if DEBUG_MODE:
+                    if DEBUG_MODE_ENABLED:
                         print(f"  [Binary content]")
 
-            if DEBUG_MODE:
+            if DEBUG_MODE_ENABLED:
                 print(f"{'='*60}\n")
 
     def response(self, flow: http.HTTPFlow) -> None:
         """Intercept all responses"""
         if 'amazonaws.com' in flow.request.pretty_host or 'kiro.dev' in flow.request.pretty_host:
-            if DEBUG_MODE:
+            if DEBUG_MODE_ENABLED:
                 print(f"\n{'='*60}")
                 print(f"[AWS RESPONSE]")
                 print(f"{'='*60}")
@@ -273,7 +467,7 @@ class KiroInterceptor:
                         print(f"  {k}: {v}")
 
             if flow.response.content:
-                if DEBUG_MODE:
+                if DEBUG_MODE_ENABLED:
                     print(f"\nResponse Body ({len(flow.response.content)} bytes):")
                 
                 # Try multiple decoding strategies
@@ -285,7 +479,7 @@ class KiroInterceptor:
                     # Try to parse as JSON
                     try:
                         response_json = json.loads(text)
-                        if DEBUG_MODE:
+                        if DEBUG_MODE_ENABLED:
                             response_str = json.dumps(response_json, indent=2)
                             if len(response_str) > 1000:
                                 print(f"  [JSON] {response_str[:1000]}...")
@@ -306,7 +500,7 @@ class KiroInterceptor:
                                 }, f, indent=2)
                     except:
                         # Not JSON, but is text
-                        if DEBUG_MODE:
+                        if DEBUG_MODE_ENABLED:
                             if len(text) > 500:
                                 print(f"  [TEXT] {text[:500]}...")
                             else:
@@ -325,7 +519,7 @@ class KiroInterceptor:
                 if not decoded and 'text/event-stream' in flow.response.headers.get('content-type', ''):
                     try:
                         text = flow.response.content.decode('utf-8')
-                        if DEBUG_MODE:
+                        if DEBUG_MODE_ENABLED:
                             print(f"  [EVENT-STREAM]")
                             lines = text.split('\n')[:20]  # First 20 lines
                             for line in lines:
@@ -344,19 +538,19 @@ class KiroInterceptor:
                 
                 # Strategy 3: Binary/unknown
                 if not decoded:
-                    if DEBUG_MODE:
+                    if DEBUG_MODE_ENABLED:
                         print(f"  [BINARY] First 100 bytes (hex):")
                         hex_data = flow.response.content[:100].hex()
                         print(f"    {hex_data}")
                     
                     # Try to identify format
                     if flow.response.content[:2] == b'\x1f\x8b':
-                        if DEBUG_MODE:
+                        if DEBUG_MODE_ENABLED:
                             print(f"  Format: GZIP compressed")
                         try:
                             import gzip
                             decompressed = gzip.decompress(flow.response.content)
-                            if DEBUG_MODE:
+                            if DEBUG_MODE_ENABLED:
                                 print(f"  Decompressed ({len(decompressed)} bytes):")
                                 decompressed_text = decompressed[:500].decode('utf-8', errors='ignore')
                                 print(f"    {decompressed_text}")
@@ -367,7 +561,7 @@ class KiroInterceptor:
                                 with open(filename, 'w', encoding='utf-8') as f:
                                     f.write(decompressed.decode('utf-8', errors='ignore'))
                         except Exception as e:
-                            if DEBUG_MODE:
+                            if DEBUG_MODE_ENABLED:
                                 print(f"  Failed to decompress: {e}")
                     
                     # Save binary to file
@@ -375,10 +569,10 @@ class KiroInterceptor:
                         filename = RESPONSES_DIR / f'response_{len(self.aws_requests)}.bin'
                         with open(filename, 'wb') as f:
                             f.write(flow.response.content)
-                        if DEBUG_MODE:
+                        if DEBUG_MODE_ENABLED:
                             print(f"  Saved binary to: {filename.name}")
             
-            if DEBUG_MODE:
+            if DEBUG_MODE_ENABLED:
                 print(f"{'='*60}\n")
 
 addons = [KiroInterceptor()]
@@ -580,26 +774,44 @@ if __name__ == "__main__":
             port = DEFAULT_PORT
 
     print("\n" + "="*60)
-    print("Kiro Intercepted - Unified Launcher")
+    print("KiroPipe - Unified Launcher")
     print("="*60)
-    print(f"\nConfiguration:")
-    print(f"  - Proxy port: {port}")
+    
+    # Print configuration summary
+    CONFIG.print_summary()
+    
+    print(f"Proxy Configuration:")
+    print(f"  - Port: {port}")
     print(f"  - Certificate validation: DISABLED")
-    print(f"  - Debug mode: {'ENABLED' if DEBUG_MODE else 'DISABLED'}")
-    print(f"  - Telemetry blocking: {'ENABLED' if BLOCK_TELEMETRY else 'DISABLED'}")
-    print(f"  - Update checks: {'BLOCKED' if BLOCK_UPDATES else 'ALLOWED'}")
-    print(f"  - Usage limits: {'BLOCKED' if BLOCK_USAGE_LIMITS else 'ALLOWED'}")
-    print(f"  - API Bridge: {'ENABLED' if ENABLE_BRIDGE else 'DISABLED'}")
-    if ENABLE_BRIDGE:
-        print(f"    → Bridge URL: {BRIDGE_URL}")
     print(f"  - Only Kiro traffic is proxied")
-    if DEBUG_MODE:
-        print(f"\nDebug output:")
-        print(f"  - Console: Detailed request/response logging")
-        print(f"  - Files saved to: {DEBUG_DIR}")
-        print(f"    - Requests: {POSTED_DIR}")
-        print(f"    - Responses: {RESPONSES_DIR}")
-    print("\nNote: Script changes require restart (Ctrl+C and rerun)")
+    
+    print(f"\nKiro Endpoint (TRUE=allow, FALSE=block):")
+    print(f"  - Telemetry: {'ALLOWED' if ALLOW_TELEMETRY else 'BLOCKED'}")
+    print(f"  - Updates: {'ALLOWED' if ALLOW_UPDATES else 'BLOCKED'}")
+    print(f"  - Kiro models: {'ALLOWED' if ALLOW_KIRO_MODELS else 'BLOCKED'}")
+    
+    # Show usage limits status
+    usage_limits_status = "AUTO (dynamic)"
+    if FORCE_TOGGLE_USAGE_LIMITS is True:
+        usage_limits_status = "ALWAYS ALLOWED"
+    elif FORCE_TOGGLE_USAGE_LIMITS is False:
+        usage_limits_status = "ALWAYS BLOCKED"
+    print(f"  - Usage limits: {usage_limits_status}")
+    
+    print(f"\nCurrent Model: {CURRENT_MODEL}")
+    model_info = CONFIG.get_model_info(CURRENT_MODEL)
+    if model_info:
+        print(f"  Provider: {model_info['provider']}")
+        print(f"  Description: {model_info['model'].get('description', 'N/A')}")
+    
+    if DEBUG_MODE_ENABLED:
+        print(f"\nDebug:")
+        print(f"  - Console logging: ENABLED")
+        print(f"  - Store interaction blocks: {'ENABLED' if DEBUG_STORE_INTERACTION_BLOCKS else 'DISABLED'}")
+        if DEBUG_STORE_INTERACTION_BLOCKS:
+            print(f"  - Files saved to: {DEBUG_DIR}")
+    
+    print("\nNote: Edit _kiropipe/kiropipe_config.yaml to change settings")
     print("="*60 + "\n")
     
     # Kill any existing launcher instances first

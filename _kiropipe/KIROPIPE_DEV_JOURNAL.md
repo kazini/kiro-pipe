@@ -1,7 +1,7 @@
-# Kiro Network Interception - Technical Journal
+# KiroPipe Development Journal
 
 ## Project Goal
-Intercept Kiro's AWS Q API traffic and redirect to custom LLM backends (Anthropic, OpenAI, local models).
+Intercept Kiro's AWS Q API traffic and redirect to custom LLM backends (Anthropic, OpenAI, Ollama, Groq, etc.).
 
 ---
 
@@ -11,7 +11,7 @@ Intercept Kiro's AWS Q API traffic and redirect to custom LLM backends (Anthropi
 Analyzed open-source `kiro-gateway` project for API structure.
 
 ### Findings
-- Service: AWS CodeWhisperer/Amazon Q (not AWS Bedrock)
+- Service: AWS CodeWhisperer/Amazon Q
 - Endpoint: `https://q.{region}.amazonaws.com`
 - Primary API: `/generateAssistantResponse`
 - Authentication: Bearer token via `Authorization` header
@@ -20,34 +20,33 @@ Analyzed open-source `kiro-gateway` project for API structure.
 ---
 
 ## Phase 2: Interception Approach
+Users had reported pinning certificates and being unable to sift through with MITM.
 
-### Initial Attempts - Frida Hooking
-Attempted multiple Frida-based approaches:
+### Failed: Frida Hooking
+Attempted multiple approaches:
 - Windows API hooking (WinHTTP/WinINET)
 - Socket-level hooking (ws2_32.dll)
 - Chromium internal hooking
 - Spawn gating
 
-**Result**: Failed. Renderer processes have anti-debug protection that blocks Frida injection. Networking occurs in protected renderer processes with no hookable exports.
+**Result**: Renderer processes have anti-debug protection blocking Frida injection.
 
-### Successful Approach - Certificate Bypass
-Used Chromium's built-in flags to disable certificate validation:
+### Success: Certificate Bypass
+Users had reUsed Chromium flags to disable certificate validation and use MITM.
 
 ```bash
 Kiro.exe --ignore-certificate-errors \
-         --ignore-certificate-errors-spki-list \
          --proxy-server="127.0.0.1:29974"
 ```
 
-Combined with environment variables:
+Environment variables:
 ```bash
 NODE_TLS_REJECT_UNAUTHORIZED=0
 ELECTRON_IGNORE_CERTIFICATE_ERRORS=1
 ```
 
-**Result**: Complete HTTPS interception via mitmproxy without modifying Kiro binaries.
-
-**Key Insight**: CLI launcher mode (`cli.js`) properly passes flags to GUI application.
+**Result**: Complete HTTPS interception via mitmproxy without binary modifications.
+**Key**: CLI launcher mode (`cli.js`) passes flags to GUI.
 
 ---
 
@@ -55,281 +54,293 @@ ELECTRON_IGNORE_CERTIFICATE_ERRORS=1
 
 ### Request Format
 Plaintext JSON with conversation state:
-
-```json
-POST /generateAssistantResponse
-{
-  "conversationState": {
-    "conversationId": "uuid",
-    "agentContinuationId": "uuid",
-    "agentTaskType": "vibe",
-    "chatTriggerType": "MANUAL",
-    "currentMessage": {
-      "userInputMessage": {
-        "content": "user message",
-        "modelId": "auto",
-        "origin": "AI_EDITOR",
-        "userInputMessageContext": {
-          "toolResults": [...],
-          "tools": [...]
-        }
-      }
-    }
-  }
-}
-```
+- `conversationState.currentMessage.userInputMessage.content` - User message
+- `conversationState.history` - Full conversation (200+ items, 500KB+)
+- `userInputMessageContext.tools` - Available tools (wrapped in `toolSpecification`)
+- `userInputMessageContext.toolResults` - Tool execution results (content as array)
 
 ### Response Format
-Binary streaming protocol: AWS Event Stream
+Binary AWS Event Stream protocol.
 
 **Event Types**:
-1. `assistantResponseEvent` - Text content chunks
-   ```json
-   {"content": "text chunk"}
-   ```
-
-2. `toolUseEvent` - Tool call chunks (streamed)
-   ```json
-   {"name": "toolName", "toolUseId": "id", "input": "partial json"}
-   ```
-
+1. `assistantResponseEvent` - Text chunks
+2. `toolUseEvent` - Tool calls (streamed as JSON chunks)
 3. `meteringEvent` - Usage tracking
-   ```json
-   {"unit": "credit", "usage": 0.214}
-   ```
-
-4. `contextUsageEvent` - Context window usage
-   ```json
-   {"contextUsagePercentage": 53.54}
-   ```
+4. `contextUsageEvent` - Context window percentage
 
 **Binary Structure**:
-- Prelude: 12 bytes (total length, headers length, CRC)
-- Headers: Key-value pairs (event-type, content-type, message-type)
+- Prelude: 12 bytes (lengths + CRC)
+- Headers: Key-value pairs
 - Payload: JSON data
 - Message CRC: 4 bytes
 
-**Decoding**: Custom Python decoder successfully parses binary format. Full messages reconstructed by concatenating content chunks.
+**Key Discovery**: Tool calls come FROM LLM (not from Kiro). Kiro executes tools locally and sends results in next request.
 
 ---
 
-## Phase 4: Implementation
+## Phase 4: Core Implementation
 
 ### Architecture
 ```
-kiropipe.py (launcher)
-    ↓
-mitmproxy (port 29974)
-    ↓
-Kiro.exe (with certificate bypass)
-    ↓
-AWS Q API (intercepted)
+kiropipe.py → mitmproxy → Kiro.exe → AWS Q (intercepted)
 ```
 
-### Directory Structure
-```
-kiro-conduit/
-├── kiropipe.py              # Main launcher
-├── Kiro/Kiro.exe            # Kiro executable
-└── _kiropipe/               # Modules and data
-    ├── debug_logs/
-    │   └── interactions/
-    │       ├── responses/   # Binary responses
-    │       └── posted/      # Requests
-    └── (tools and bridge modules)
-```
+### Features Implemented
+- Auto-detect Kiro.exe location
+- Region-agnostic blocking (telemetry, updates, usage limits)
+- Debug mode with file capture
+- Process monitoring (detects Kiro window, exits when closed)
+- Injection queue system for testing
 
-### Configuration
-All settings in `kiropipe.py`:
-- `DEFAULT_PORT = 29974` (mitmproxy limit: ≤34438)
-- `KIRO_EXE_PATH = None` (auto-detect or custom path)
-- `BLOCK_TELEMETRY = True` (blocks metrics/traces, any region)
-- `BLOCK_UPDATES = True` (blocks version checks)
-- `BLOCK_USAGE_LIMITS = False` (optional, removes credit display)
-- `DEBUG_MODE = True` (toggle logging and file output)
-
-### Features
-- Auto-detects Kiro.exe in multiple locations
-- Region-agnostic blocking (works across all AWS regions)
-- Debug mode: detailed logging + file capture
-- Production mode: silent operation, no files
-- Single script execution, no system-wide proxy changes
+### Configuration System
+Migrated from hardcoded variables to YAML:
+- `kiropipe_config.yaml` - Main configuration
+- Supports multiple providers with model aliases
+- Dynamic usage limits based on model type
+- Kiro endpoint control (TRUE=allow, FALSE=block)
 
 ---
 
-## Phase 5: Tools Developed
+## Phase 5: AWS Event Stream Codec
 
-### Core Engine Scripts (_kiropipe/engine/)
+### Decoder (`decode_event_stream.py`)
+Parses binary AWS Event Stream to JSON events.
 
-**decode_event_stream.py** - Decodes AWS Event Stream binary format to JSON.
-```bash
-python _kiropipe/engine/decode_event_stream.py
+**Capabilities**:
+- Extracts all event types
+- Validates CRC checksums
+- Handles streaming chunks
+
+### Encoder (`event_stream_encoder.py`)
+Generates AWS Event Stream binary from events.
+
+**Functions**:
+- `encode_text_chunk()` - Text responses
+- `encode_tool_use_chunk()` - Tool calls (streamed)
+- `encode_metering()` - Usage metrics
+- `encode_context_usage()` - Context percentage
+
+**Validation**: Round-trip encoding/decoding verified against captured AWS Q responses.
+
+---
+
+## Phase 6: API Bridge
+
+### Request Translator (`request_translator.py`)
+Converts AWS Q format to standard LLM APIs.
+
+**Anthropic Translation**:
+- Extracts conversation history from `conversationState.history`
+- Unwraps tools from `toolSpecification` wrapper
+- Extracts text from tool results content array
+- Builds Anthropic Messages API format
+
+**OpenAI Translation**:
+- Similar extraction logic
+- Converts to Chat Completions format
+- Handles tool results as separate messages
+
+### Response Translator (`response_translator.py`)
+Converts LLM streaming responses to AWS Event Stream.
+
+**Anthropic Stream**:
+- `message_start` → Extract input tokens
+- `content_block_delta` (text) → `assistantResponseEvent`
+- `content_block_delta` (tool) → `toolUseEvent` (streamed)
+- `message_delta` → Extract output tokens
+- `message_stop` → `meteringEvent` + `contextUsageEvent`
+
+**OpenAI Stream**:
+- Similar mapping for OpenAI SSE format
+- Handles tool calls accumulation
+- Generates usage events
+
+### Bridge Server (`bridge_server.py`)
+FastAPI server with endpoints:
+- `POST /generateAssistantResponse` - Main API (mimics AWS Q)
+- `GET /health` - Status + statistics
+- `GET /config` - Current configuration
+- `GET /stats` - Detailed usage per session
+
+**Backends Supported**:
+- Anthropic (direct API)
+- OpenAI (direct API)
+- LiteLLM (universal - 100+ providers)
+
+**Session Tracking**:
+- Per-conversation statistics
+- Token usage tracking
+- Request counting
+
+---
+
+## Phase 7: LiteLLM Integration
+
+### Purpose
+Single bridge implementation supporting 100+ LLM providers via format conversion.
+
+### Providers Tested
+- Ollama (local, free)
+- Groq (cloud, free tier - 14,400 req/day)
+- Anthropic Claude (via LiteLLM)
+- OpenAI GPT (via LiteLLM)
+
+### Format Conversion
+LiteLLM automatically converts:
+- Anthropic format → OpenAI format
+- Anthropic format → Ollama format
+- Anthropic format → Groq format
+
+**Benefit**: One bridge server, all providers.
+
+---
+
+## Phase 8: Configuration System
+
+### YAML Configuration
+Replaced JSON with YAML for better readability.
+
+**Structure**:
+```yaml
+proxy:
+  port: 29974
+
+kiro:
+  exe_path: null  # Auto-detect
+
+kiro_endpoint:  # TRUE=allow, FALSE=block
+  telemetry: false
+  updates: false
+  models: true
+  force_toggle_usage_limits: null  # Auto mode
+
+debug:
+  debug_mode_enabled: true
+  store_interaction_blocks: false
+
+providers:
+  kiro:
+    enabled: true
+    type: passthrough
+  
+  anthropic:
+    enabled: false
+    type: anthropic
+    api_key: null
+    models:
+      - name: "claude-3-5-sonnet-20241022"
+        alias: ["claude", "sonnet"]
+
+default_model: "kiro-default"
 ```
 
-**event_stream_encoder.py** - Encodes responses to AWS Event Stream format.
-```bash
-python _kiropipe/engine/event_stream_encoder.py
-```
+### Config Loader (`config_loader.py`)
+- Deep merge with hardcoded defaults
+- Model name/alias mapping (O(1) lookup)
+- Provider management
+- Dynamic usage limits logic
+- Validation and error handling
 
-**reconstruct_messages.py** - Rebuilds full messages from event chunks.
-```bash
-python _kiropipe/engine/reconstruct_messages.py
-```
+---
 
-### Development Tools (_kiropipe/tools/)
+## Phase 9: Dependency Management
 
-**test_encoder.py** - Tests encoder/decoder round-trip and validates format.
-```bash
-python _kiropipe/tools/test_encoder.py
-```
+### Requirements Check
+Added on-boot dependency checking:
+- Reads `_kiropipe/requirements.txt`
+- Detects missing packages
+- Detects outdated versions
+- Offers auto-install option
 
-**analyze_interaction_pattern.py** - Analyzes request/response patterns.
-```bash
-python _kiropipe/tools/analyze_interaction_pattern.py
-```
+**User Options**:
+1. Auto-install/upgrade all
+2. Show manual commands
+3. Continue anyway (with warning)
 
-**unpack_request.py** - Unpacks captured requests to JSON and Markdown.
-```bash
-python _kiropipe/tools/unpack_request.py <request_number>
-```
+---
 
-**inject_response.py** - HTTP server that injects synthetic responses for testing.
-```bash
-python _kiropipe/tools/inject_response.py
-```
+## Phase 10: Development Tools Consolidation
 
-**test_injection.py** - Automated test suite for injection server.
-```bash
-python _kiropipe/tools/test_injection.py
-```
+### Consolidated Tools
+**`analyze_traffic.py`** - Replaces 5 analysis tools:
+- Analyzes requests, responses, and pairs
+- Decodes binary Event Stream
+- Extracts conversation flow
+
+**`test_system.py`** - Replaces 8 testing tools:
+- Tests encoder/decoder
+- Tests translators
+- Tests configuration
+- Tests bridge connection
+- Tests Ollama connection
+
+### Injection System
+**`text_to_stream.py`** - Convert text to AWS Event Stream
+**`inject_to_kiro.py`** - Inject messages into Kiro
+**`inject_response.py`** - Injection server for testing
+**`quick_test.py`** - Quick injection test
+**`send_to_kiro.py`** - Send messages to Kiro
+
+### Utilities
+**`setup_config.py`** - Interactive configuration wizard
+**`find_kiro_pids.py`** - Find Kiro process IDs
+**`spawn_and_hook.py`** - Spawn Kiro with custom settings
+
+**Result**: 27 files → 10 files (63% reduction)
 
 ---
 
 ## Technical Findings
 
 ### Port Limitation
-mitmproxy ports must be ≤34438. Higher ports are ignored.
+mitmproxy ports must be ≤34438.
 
 ### Certificate Pinning
-Chromium flags override application-level certificate pinning. No binary patching required.
+Chromium flags override application-level pinning. No binary patching required.
 
 ### Streaming Protocol
-AWS Q uses streaming responses similar to Anthropic Claude API, indicating shared architecture.
+AWS Q uses streaming similar to Anthropic Claude, indicating shared architecture.
 
-### Tool Use Format
-Tool calls are streamed as chunks. Input JSON must be concatenated from multiple events.
+### Tool Use Flow
+1. User message → LLM decides to use tool
+2. LLM returns tool call (binary)
+3. Kiro executes tool locally
+4. Kiro sends tool results in next request
+5. LLM sees results, responds with final answer
 
-### Blocking Patterns
-Using hostname substrings (e.g., 'telemetry') works across all regions without hardcoding region names.
+### Conversation History
+Every request includes full history (200+ items). This is why requests are 500KB+.
+
+### Tool Format
+- Tools wrapped in `toolSpecification` object
+- Tool results have content as array: `[{"text": "..."}]`
+- Tool calls streamed as JSON chunks
 
 ---
 
 ## Current Status
 
-### Working
+### Production Ready
 - Traffic interception with certificate bypass
-- Request/response capture and logging
-- AWS Event Stream decoding
-- Telemetry, update, and usage limit blocking
-- Debug mode with organized file structure
-- Complete API format documentation
+- YAML configuration system
+- Multiple provider support (Anthropic, OpenAI, LiteLLM)
+- Session tracking and statistics
+- Dependency checking with auto-install
+- Consolidated development tools
 
-### Verified
-- Certificate bypass works across Kiro updates
-- No Kiro binary modifications required
-- Only Kiro traffic proxied (system unaffected)
-- Blocking functional for all tested features
+### Tested
+- Anthropic Claude (direct API)
+- Ollama (local, via LiteLLM)
+- Groq (cloud, via LiteLLM)
+- Request/response translation
+- Tool calling flow
+- Multi-turn conversations
 
----
-
-## Phase 6: Response Injection Testing
-
-### Objective
-Create tools to inject synthetic responses into Kiro for testing the complete flow without needing a real LLM backend.
-
-### Implementation
-
-**inject_response.py** - HTTP server that generates synthetic AWS Event Stream responses
-- Listens on `http://localhost:8000`
-- Mimics AWS Q API endpoint `/generateAssistantResponse`
-- Generates different response types based on request content
-- Supports text responses, tool calls, and tool result responses
-
-**test_injection.py** - Automated test suite
-- Tests simple text responses
-- Tests tool call generation
-- Tests tool result responses
-- Validates encoding/decoding round-trip
-
-### Usage
-
-1. Start injection server:
-```bash
-python _kiropipe/tools/inject_response.py
-```
-
-2. Configure kiropipe.py:
-```python
-ENABLE_BRIDGE = True
-BRIDGE_URL = 'http://localhost:8000'
-```
-
-3. Launch Kiro and test:
-- Normal message: "Hello, how are you?"
-- Tool call test: "Please test tool calling"
-
-### Benefits
-- Test response generation without API keys
-- Verify AWS Event Stream format is correct
-- Debug Kiro's response handling
-- Develop bridge without external dependencies
-
----
-
-## Next Phase: API Bridge
-
-### Objective
-Build local server to translate between AWS Q API and standard LLM APIs.
-
-### Target Format
-Primary: Anthropic Claude API (AWS Q is based on Claude architecture)
-Secondary: OpenAI API (via LiteLLM adapter)
-
-### Components
-1. AWS Event Stream encoder (generate binary responses)
-2. Request translator (AWS Q → Anthropic/OpenAI)
-3. Response translator (Anthropic/OpenAI → AWS Event Stream)
-4. Bridge server (FastAPI)
-5. Proxy integration (forward to bridge instead of AWS)
-
-### LLM Support
-Using LiteLLM for universal compatibility:
-- Anthropic (Claude)
-- OpenAI (GPT)
-- Ollama (local models)
-- Groq (free tier)
-- 100+ other providers
-
-### Free Model Options
-**Local**:
-- Ollama + Llama 3.2 (3B/8B)
-- Ollama + Qwen 2.5 Coder (7B)
-- LM Studio
-
-**Cloud**:
-- Groq (14,400 requests/day free)
-- Together AI (free credits)
-- OpenRouter (free models)
-
-### Implementation Plan
-1. Implement AWS Event Stream encoder
-2. Build request translator (AWS Q → target format)
-3. Build response translator (target format → AWS Event Stream)
-4. Create bridge server (FastAPI)
-5. Update proxy to forward to bridge
-6. Add LiteLLM integration
-7. Test with multiple backends
-8. Document configuration
+### Documentation
+- User guides (README, QUICK_START)
+- Developer documentation (this journal, devtools README)
+- Configuration examples
+- Troubleshooting guides
 
 ---
 
@@ -338,11 +349,9 @@ Using LiteLLM for universal compatibility:
 ### Documentation
 - AWS CodeWhisperer API: https://docs.aws.amazon.com/codewhisperer/
 - kiro-gateway: https://github.com/jwadow/kiro-gateway
-- Chromium Command Line Switches: https://peter.sh/experiments/chromium-command-line-switches/
 - LiteLLM: https://github.com/BerriAI/litellm
+- Ollama: https://ollama.ai
 
 ### Tools
 - mitmproxy: https://mitmproxy.org/
-- Python 3.x
-- FastAPI (planned)
-- LiteLLM (planned)
+- FastAPI: https://fastapi.tiangolo.com/
