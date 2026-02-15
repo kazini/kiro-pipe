@@ -1,0 +1,76 @@
+{
+  "bridge": {
+    "backend": "litellm",
+    "model": "ollama/llama3.2",
+    "api_key": null,
+    "api_base": null,
+    "max_tokens": 4096,
+    "debug": true
+  },
+  "litellm": {
+    "enabled": true,
+    "model": "ollama/llama3.2",
+    "api_base": "http://localhost:11434",
+    "api_key": null
+  },
+  "examples": {
+    "comment": "Copy one of these examples to the top-level config to use it",
+    
+    "ollama_local": {
+      "description": "Free local LLM (no API key needed)",
+      "bridge": {
+        "backend": "litellm",
+        "model": "ollama/llama3.2",
+        "max_tokens": 4096,
+        "debug": true
+      },
+      "litellm": {
+        "enabled": true,
+        "model": "ollama/llama3.2",
+        "api_base": "http://localhost:11434",
+        "api_key": null
+      }
+    },
+    
+    "groq_free": {
+      "description": "Free cloud API (14,400 requests/day)",
+      "bridge": {
+        "backend": "litellm",
+        "model": "groq/llama-3.1-70b-versatile",
+        "max_tokens": 4096,
+        "debug": true
+      },
+      "litellm": {
+        "enabled": true,
+        "model": "groq/llama-3.1-70b-versatile",
+        "api_base": null,
+        "api_key": "YOUR_GROQ_API_KEY_HERE"
+      },
+      "note": "Get free API key at https://groq.com"
+    },
+    
+    "anthropic_cloud": {
+      "description": "Anthropic Claude (paid)",
+      "bridge": {
+        "backend": "anthropic",
+        "model": "claude-3-5-sonnet-20241022",
+        "api_key": "YOUR_ANTHROPIC_API_KEY_HERE",
+        "max_tokens": 4096,
+        "debug": true
+      },
+      "note": "Requires paid Anthropic API key"
+    },
+    
+    "openai_cloud": {
+      "description": "OpenAI GPT (paid)",
+      "bridge": {
+        "backend": "openai",
+        "model": "gpt-4",
+        "api_key": "YOUR_OPENAI_API_KEY_HERE",
+        "max_tokens": 4096,
+        "debug": true
+      },
+      "note": "Requires paid OpenAI API key"
+    }
+  }
+}

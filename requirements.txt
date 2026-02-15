@@ -5,3 +5,6 @@ mitmproxy>=10.0.0
 
 # Process monitoring
 psutil>=5.9.0
+
+# HTTP client (for bridge forwarding)
+httpx>=0.25.0

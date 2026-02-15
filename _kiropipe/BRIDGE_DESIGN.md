@@ -45,9 +45,29 @@ Create a local server that translates between AWS Q API format and standard LLM 
     "agentContinuationId": "uuid",
     "agentTaskType": "vibe",
     "chatTriggerType": "MANUAL",
+    "history": [
+      {
+        "userInputMessage": {
+          "content": "system prompt and instructions...",
+          "modelId": "auto"
+        }
+      },
+      {
+        "userInputMessage": {
+          "content": "previous user message",
+          "modelId": "auto"
+        }
+      },
+      {
+        "assistantResponseMessage": {
+          "content": "previous assistant response"
+        }
+      }
+      // ... all previous turns
+    ],
     "currentMessage": {
       "userInputMessage": {
-        "content": "user message",
+        "content": "current user message",
         "modelId": "auto",
         "origin": "AI_EDITOR",
         "userInputMessageContext": {
@@ -59,6 +79,12 @@ Create a local server that translates between AWS Q API format and standard LLM 
   }
 }
 ```
+
+**Important**: 
+- `history` array contains ALL previous messages (can be 200+ items)
+- First message is usually system prompt with identity and instructions
+- Requests can be 500KB+ due to full conversation history
+- History includes both user and assistant messages
 
 ## Target API Format
 
@@ -151,43 +177,47 @@ Kiro
 
 ## Implementation Plan
 
-### Phase 1: Event Stream Encoder
+### Phase 1: Event Stream Encoder ✅ COMPLETE
 Create AWS Event Stream encoder to generate binary responses
 
-**Key functions**:
-- `encode_event(event_type, payload)` → binary
-- `encode_text_chunk(text)` → assistantResponseEvent
-- `encode_tool_use(name, tool_id, input_chunk)` → toolUseEvent
-- `encode_metering(usage)` → meteringEvent
+**Status**: Implemented and tested
+**Location**: `_kiropipe/engine/event_stream_encoder.py`
 
-### Phase 2: Request Translator
-Convert AWS Q requests to Anthropic format
+### Phase 2: Request Translator ✅ COMPLETE
+Convert AWS Q requests to Anthropic/OpenAI format
 
-**Mappings**:
-- `conversationState.currentMessage.userInputMessage.content` → `messages[].content`
-- `conversationState.currentMessage.userInputMessage.userInputMessageContext.tools` → `tools`
-- `conversationState.currentMessage.userInputMessage.userInputMessageContext.toolResults` → previous messages with tool results
+**Status**: Implemented and tested
+**Location**: `_kiropipe/engine/request_translator.py`
 
-### Phase 3: Response Translator
-Convert Anthropic streaming responses to AWS Event Stream
+### Phase 3: Response Translator ✅ COMPLETE
+Convert Anthropic/OpenAI streaming responses to AWS Event Stream
 
-**Mappings**:
-- Anthropic `content_block_delta` → AWS Q `assistantResponseEvent`
-- Anthropic `tool_use` → AWS Q `toolUseEvent` (streamed)
-- Anthropic usage → AWS Q `meteringEvent`
+**Status**: Implemented and tested
+**Location**: `_kiropipe/engine/response_translator.py`
 
-### Phase 4: Bridge Server
+### Phase 4: Bridge Server ✅ COMPLETE
 FastAPI server that:
 1. Receives AWS Q requests on `/generateAssistantResponse`
-2. Translates to Anthropic format
-3. Calls Anthropic API (or OpenAI, or local)
+2. Translates to Anthropic/OpenAI format
+3. Calls LLM API (Anthropic/OpenAI/LiteLLM)
 4. Streams response back as AWS Event Stream
 
-### Phase 5: Proxy Integration
+**Status**: Implemented
+**Location**: `_kiropipe/engine/bridge_server.py`
+
+**Endpoints**:
+- `POST /generateAssistantResponse` - Main API endpoint
+- `GET /health` - Health check
+- `GET /config` - View configuration
+
+### Phase 5: Proxy Integration ⏳ NEXT
 Update mitmproxy addon to:
 1. Intercept `/generateAssistantResponse` requests
 2. Forward to local bridge server (e.g., `http://localhost:8000`)
 3. Return bridge server response to Kiro
+
+**Status**: Not started
+**Location**: `kiropipe.py` (update KiroInterceptor class)
 
 ## Configuration
 

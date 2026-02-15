@@ -188,6 +188,21 @@ python _kiropipe/tools/test_encoder.py
 python _kiropipe/tools/analyze_interaction_pattern.py
 ```
 
+**unpack_request.py** - Unpacks captured requests to JSON and Markdown.
+```bash
+python _kiropipe/tools/unpack_request.py <request_number>
+```
+
+**inject_response.py** - HTTP server that injects synthetic responses for testing.
+```bash
+python _kiropipe/tools/inject_response.py
+```
+
+**test_injection.py** - Automated test suite for injection server.
+```bash
+python _kiropipe/tools/test_injection.py
+```
+
 ---
 
 ## Technical Findings
@@ -224,6 +239,50 @@ Using hostname substrings (e.g., 'telemetry') works across all regions without h
 - No Kiro binary modifications required
 - Only Kiro traffic proxied (system unaffected)
 - Blocking functional for all tested features
+
+---
+
+## Phase 6: Response Injection Testing
+
+### Objective
+Create tools to inject synthetic responses into Kiro for testing the complete flow without needing a real LLM backend.
+
+### Implementation
+
+**inject_response.py** - HTTP server that generates synthetic AWS Event Stream responses
+- Listens on `http://localhost:8000`
+- Mimics AWS Q API endpoint `/generateAssistantResponse`
+- Generates different response types based on request content
+- Supports text responses, tool calls, and tool result responses
+
+**test_injection.py** - Automated test suite
+- Tests simple text responses
+- Tests tool call generation
+- Tests tool result responses
+- Validates encoding/decoding round-trip
+
+### Usage
+
+1. Start injection server:
+```bash
+python _kiropipe/tools/inject_response.py
+```
+
+2. Configure kiropipe.py:
+```python
+ENABLE_BRIDGE = True
+BRIDGE_URL = 'http://localhost:8000'
+```
+
+3. Launch Kiro and test:
+- Normal message: "Hello, how are you?"
+- Tool call test: "Please test tool calling"
+
+### Benefits
+- Test response generation without API keys
+- Verify AWS Event Stream format is correct
+- Debug Kiro's response handling
+- Develop bridge without external dependencies
 
 ---
 

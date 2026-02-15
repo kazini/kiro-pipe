@@ -24,7 +24,11 @@ KIRO_EXE_PATH = None  # Set to custom path or None to auto-detect
 BLOCK_TELEMETRY = True  # Block telemetry (metrics/traces)
 BLOCK_UPDATES = True  # Block update checks
 BLOCK_USAGE_LIMITS = False  # Block kiro credit usage limit checks
-DEBUG_MODE = True  # Show detailed output and save to files
+DEBUG_MODE = False  # Show detailed output and save to files
+
+# Bridge configuration
+ENABLE_BRIDGE = False  # Enable API bridge (forward to local LLM)
+BRIDGE_URL = 'http://localhost:8000'  # Bridge server URL
 # ============================================================
 #
 #
@@ -41,6 +45,9 @@ KIROPIPE_DIR = SCRIPT_DIR / "_kiropipe"  # Module directory
 DEBUG_DIR = KIROPIPE_DIR / "debug_logs" / "interactions"
 RESPONSES_DIR = DEBUG_DIR / "responses"
 POSTED_DIR = DEBUG_DIR / "posted"
+
+# Injection queue file (after KIROPIPE_DIR is defined)
+INJECTION_QUEUE_FILE = KIROPIPE_DIR / "debug_logs" / ".injection_queue.json"
 
 # Add _kiropipe to Python path for module imports
 sys.path.insert(0, str(KIROPIPE_DIR))
@@ -93,6 +100,98 @@ class KiroInterceptor:
                 {"Content-Type": "application/json"}
             )
             return
+        
+        # Forward to bridge if enabled and it's a generateAssistantResponse request
+        if ENABLE_BRIDGE and 'generateAssistantResponse' in flow.request.path:
+            if DEBUG_MODE:
+                print(f"\n[BRIDGE] Forwarding request to {BRIDGE_URL}")
+            
+            try:
+                import httpx
+                
+                # Forward request to bridge with streaming
+                with httpx.Client(timeout=300.0) as client:
+                    bridge_response = client.post(
+                        f"{BRIDGE_URL}/generateAssistantResponse",
+                        content=flow.request.content,
+                        headers={
+                            'Content-Type': 'application/json',
+                        }
+                    )
+                    
+                    # Create response with bridge data
+                    flow.response = http.Response.make(
+                        bridge_response.status_code,
+                        bridge_response.content,
+                        dict(bridge_response.headers)
+                    )
+                    
+                    if DEBUG_MODE:
+                        print(f"[BRIDGE] Response received: {bridge_response.status_code} ({len(bridge_response.content)} bytes)")
+                    
+                    return
+                
+            except Exception as e:
+                if DEBUG_MODE:
+                    print(f"[BRIDGE] Error: {e}")
+                    import traceback
+                    traceback.print_exc()
+                # Fall through to normal AWS Q request if bridge fails
+                pass
+        
+        # Check for injected responses (no flag needed - just check if queue exists)
+        if 'generateAssistantResponse' in flow.request.path and INJECTION_QUEUE_FILE.exists():
+            try:
+                # Read the queue
+                queue_data = json.loads(INJECTION_QUEUE_FILE.read_text())
+                
+                if queue_data and len(queue_data) > 0:
+                    # Get the first item from queue
+                    injection = queue_data.pop(0)
+                    
+                    if DEBUG_MODE:
+                        print(f"\n[INJECT] Using queued response")
+                        print(f"[INJECT] Message: {injection.get('text', 'unknown')}")
+                    
+                    # Get the binary data (it's base64 encoded in the queue)
+                    import base64
+                    injected_binary = base64.b64decode(injection['binary'])
+                    
+                    # Create response
+                    flow.response = http.Response.make(
+                        200,
+                        injected_binary,
+                        {
+                            'Content-Type': 'application/vnd.amazon.eventstream',
+                            'x-amzn-RequestId': 'injected-response-123'
+                        }
+                    )
+                    
+                    if DEBUG_MODE:
+                        print(f"[INJECT] Injected {len(injected_binary)} bytes")
+                        if injection.get('include_tool'):
+                            print(f"[INJECT] Includes tool call")
+                    
+                    # Update the queue file (remove the used injection)
+                    if len(queue_data) > 0:
+                        INJECTION_QUEUE_FILE.write_text(json.dumps(queue_data, indent=2))
+                        if DEBUG_MODE:
+                            print(f"[INJECT] {len(queue_data)} injection(s) remaining in queue")
+                    else:
+                        INJECTION_QUEUE_FILE.unlink()
+                        if DEBUG_MODE:
+                            print(f"[INJECT] Queue empty, file deleted")
+                    
+                    return
+                
+            except Exception as e:
+                if DEBUG_MODE:
+                    print(f"[INJECT] Error reading queue: {e}")
+                    import traceback
+                    traceback.print_exc()
+                # Fall through to normal AWS Q request if injection fails
+                pass
+
 
         # Check if it's an AWS Q request
         if 'amazonaws.com' in flow.request.pretty_host or 'kiro.dev' in flow.request.pretty_host:
@@ -490,6 +589,9 @@ if __name__ == "__main__":
     print(f"  - Telemetry blocking: {'ENABLED' if BLOCK_TELEMETRY else 'DISABLED'}")
     print(f"  - Update checks: {'BLOCKED' if BLOCK_UPDATES else 'ALLOWED'}")
     print(f"  - Usage limits: {'BLOCKED' if BLOCK_USAGE_LIMITS else 'ALLOWED'}")
+    print(f"  - API Bridge: {'ENABLED' if ENABLE_BRIDGE else 'DISABLED'}")
+    if ENABLE_BRIDGE:
+        print(f"    → Bridge URL: {BRIDGE_URL}")
     print(f"  - Only Kiro traffic is proxied")
     if DEBUG_MODE:
         print(f"\nDebug output:")
