@@ -230,6 +230,7 @@ class KiroInterceptor:
     def __init__(self):
         self.request_count = 0
         self.aws_requests = []
+        self.max_requests_history = 100  # Limit history to prevent memory leak
         self.save_to_file = DEBUG_STORE_INTERACTION_BLOCKS
         self.current_model = CURRENT_MODEL
         self.kiro_model_ids = set()  # Track Kiro's original model IDs
@@ -632,6 +633,10 @@ class KiroInterceptor:
                 'host': flow.request.pretty_host,
                 'path': flow.request.path
             })
+            
+            # Prevent memory leak: keep only last N requests
+            if len(self.aws_requests) > self.max_requests_history:
+                self.aws_requests = self.aws_requests[-self.max_requests_history:]
 
             # Check for model-related endpoints (debug mode only)
             model_keywords = ['model', 'list', 'available', 'configuration', 'select', 'choice']
@@ -1246,220 +1251,6 @@ if __name__ == "__main__":
     print(f"{Fore.CYAN}Proxy stopped. Waiting for cleanup...{Style.RESET_ALL}")
     kiro_thread.join(timeout=5)
     print(f"{Fore.GREEN}Cleanup complete.{Style.RESET_ALL}")
-
-    def __init__(self):
-        self.request_count = 0
-        self.aws_requests = []
-        self.save_to_file = True
-
-    def request(self, flow: http.HTTPFlow) -> None:
-        """Intercept all requests"""
-        self.request_count += 1
-
-        # Check if it's an AWS Q request
-        if 'amazonaws.com' in flow.request.pretty_host or 'kiro.dev' in flow.request.pretty_host:
-            self.aws_requests.append({
-                'url': flow.request.pretty_url,
-                'method': flow.request.method,
-                'host': flow.request.pretty_host,
-                'path': flow.request.path
-            })
-
-            print(f"\n{'='*60}")
-            print(f"[AWS REQUEST #{len(self.aws_requests)}]")
-            print(f"{'='*60}")
-            print(f"Method: {flow.request.method}")
-            print(f"Host: {flow.request.pretty_host}")
-            print(f"Path: {flow.request.path}")
-            print(f"URL: {flow.request.pretty_url}")
-
-            # Print headers
-            print(f"\nHeaders:")
-            for k, v in flow.request.headers.items():
-                if k.lower() in ['authorization', 'x-amz-target', 'content-type', 'user-agent']:
-                    print(f"  {k}: {v}")
-
-            # Print body if present
-            if flow.request.content:
-                print(f"\nBody ({len(flow.request.content)} bytes):")
-                try:
-                    body = flow.request.text
-                    # Try to parse as JSON for pretty printing
-                    try:
-                        body_json = json.loads(body)
-                        body_str = json.dumps(body_json, indent=2)
-                        if len(body_str) > 1000:
-                            print(f"  {body_str[:1000]}...")
-                        else:
-                            print(f"  {body_str}")
-                    except:
-                        # Not JSON, print as text
-                        if len(body) > 500:
-                            print(f"  {body[:500]}...")
-                        else:
-                            print(f"  {body}")
-                    
-                    # Save to file
-                    if self.save_to_file and 'generateAssistantResponse' in flow.request.path:
-                        with open('captured_requests.jsonl', 'a', encoding='utf-8') as f:
-                            f.write(json.dumps({
-                                'type': 'request',
-                                'url': flow.request.pretty_url,
-                                'headers': dict(flow.request.headers),
-                                'body': body
-                            }) + '\n')
-                except:
-                    print(f"  [Binary content]")
-
-            print(f"{'='*60}\n")
-
-    def response(self, flow: http.HTTPFlow) -> None:
-        """Intercept all responses"""
-        if 'amazonaws.com' in flow.request.pretty_host or 'kiro.dev' in flow.request.pretty_host:
-            print(f"\n{'='*60}")
-            print(f"[AWS RESPONSE]")
-            print(f"{'='*60}")
-            print(f"Status: {flow.response.status_code}")
-            print(f"URL: {flow.request.pretty_url}")
-            
-            # Print response headers
-            print(f"\nResponse Headers:")
-            for k, v in flow.response.headers.items():
-                if k.lower() in ['content-type', 'content-encoding', 'content-length', 'x-amzn-requestid']:
-                    print(f"  {k}: {v}")
-
-            if flow.response.content:
-                print(f"\nResponse Body ({len(flow.response.content)} bytes):")
-                
-                # Try multiple decoding strategies
-                decoded = False
-                
-                # Strategy 1: Try as text/JSON
-                try:
-                    text = flow.response.text
-                    # Try to parse as JSON
-                    try:
-                        response_json = json.loads(text)
-                        response_str = json.dumps(response_json, indent=2)
-                        if len(response_str) > 1000:
-                            print(f"  [JSON] {response_str[:1000]}...")
-                        else:
-                            print(f"  [JSON] {response_str}")
-                        decoded = True
-                        
-                        # Save to file
-                        if self.save_to_file and 'generateAssistantResponse' in flow.request.path:
-                            with open('captured_responses.jsonl', 'a', encoding='utf-8') as f:
-                                f.write(json.dumps({
-                                    'type': 'response',
-                                    'url': flow.request.pretty_url,
-                                    'status': flow.response.status_code,
-                                    'headers': dict(flow.response.headers),
-                                    'body': response_json
-                                }) + '\n')
-                    except:
-                        # Not JSON, but is text
-                        if len(text) > 500:
-                            print(f"  [TEXT] {text[:500]}...")
-                        else:
-                            print(f"  [TEXT] {text}")
-                        decoded = True
-                        
-                        # Save raw text
-                        if self.save_to_file and 'generateAssistantResponse' in flow.request.path:
-                            with open('captured_responses.jsonl', 'a', encoding='utf-8') as f:
-                                f.write(json.dumps({
-                                    'type': 'response',
-                                    'url': flow.request.pretty_url,
-                                    'status': flow.response.status_code,
-                                    'headers': dict(flow.response.headers),
-                                    'body': text
-                                }) + '\n')
-                except Exception as e:
-                    pass
-                
-                # Strategy 2: Check if it's event-stream (streaming response)
-                if not decoded and 'text/event-stream' in flow.response.headers.get('content-type', ''):
-                    try:
-                        text = flow.response.content.decode('utf-8')
-                        print(f"  [EVENT-STREAM]")
-                        lines = text.split('\n')[:20]  # First 20 lines
-                        for line in lines:
-                            print(f"    {line}")
-                        if len(text.split('\n')) > 20:
-                            print(f"    ... ({len(text.split('\n'))} total lines)")
-                        decoded = True
-                    except:
-                        pass
-                
-                # Strategy 3: Binary/unknown
-                if not decoded:
-                    print(f"  [BINARY] First 100 bytes (hex):")
-                    hex_data = flow.response.content[:100].hex()
-                    print(f"    {hex_data}")
-                    
-                    # Try to identify format
-                    if flow.response.content[:2] == b'\x1f\x8b':
-                        print(f"  Format: GZIP compressed")
-                        try:
-                            import gzip
-                            decompressed = gzip.decompress(flow.response.content)
-                            print(f"  Decompressed ({len(decompressed)} bytes):")
-                            print(f"    {decompressed[:500].decode('utf-8', errors='ignore')}")
-                        except Exception as e:
-                            print(f"  Failed to decompress: {e}")
-                    
-                    # Save binary to file
-                    if self.save_to_file and 'generateAssistantResponse' in flow.request.path:
-                        filename = f'response_binary_{len(self.aws_requests)}.bin'
-                        with open(filename, 'wb') as f:
-                            f.write(flow.response.content)
-                        print(f"  Saved to: {filename}")
-            
-            print(f"{'='*60}\n")
-
-addons = [KiroInterceptor()]
-
-def launch_kiro(port):
-    """Launch Kiro with proxy settings"""
-    # Wait for proxy to be ready
-    time.sleep(2)
-    
-    # Find Kiro.exe
-    script_dir = Path(__file__).parent.parent
-    kiro_exe = script_dir / "Kiro" / "Kiro.exe"
-    kiro_cli = script_dir / "Kiro" / "resources" / "app" / "out" / "cli.js"
-    
-    if not kiro_exe.exists():
-        print(f"\nERROR: Kiro.exe not found at {kiro_exe}")
-        return
-    
-    if not kiro_cli.exists():
-        print(f"\nERROR: cli.js not found at {kiro_cli}")
-        return
-    
-    print(f"\n{'='*60}")
-    print("Launching Kiro...")
-    print(f"{'='*60}\n")
-    
-    # Set environment variables
-    env = os.environ.copy()
-    env['NODE_TLS_REJECT_UNAUTHORIZED'] = '0'
-    env['ELECTRON_IGNORE_CERTIFICATE_ERRORS'] = '1'
-    env['VSCODE_DEV'] = ''
-    env['ELECTRON_RUN_AS_NODE'] = '1'
-    
-    # Launch Kiro
-    try:
-        subprocess.run([
-            str(kiro_exe),
-            str(kiro_cli),
-            '--ignore-certificate-errors',
-            f'--proxy-server=127.0.0.1:{port}'
-        ], env=env)
-        
-        print(f"\n{'='*60}")
-        print("Kiro closed")
         print(f"{'='*60}\n")
     except Exception as e:
         print(f"\nError launching Kiro: {e}")
