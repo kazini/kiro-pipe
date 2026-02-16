@@ -1,0 +1,64 @@
+{
+  "models": [
+    {
+      "modelId": "test-dummy-1",
+      "modelName": "Test Dummy 1",
+      "description": "Ignore me, dummy, or I'll bug you!",
+      "promptCaching": {
+        "maximumCacheCheckpointsPerRequest": 4,
+        "minimumTokensPerCacheCheckpoint": 1024,
+        "supportsPromptCaching": true
+      },
+      "rateMultiplier": 0,
+      "rateUnit": "Credit",
+      "supportedInputTypes": ["TEXT", "IMAGE"],
+      "tokenLimits": {
+        "maxInputTokens": 200000,
+        "maxOutputTokens": null
+      },
+      "provider": "test-provider",
+      "custom_field": "this should be stripped",
+      "endpoint": "https://example.com"
+    },
+    {
+      "modelId": "test-dummy-2",
+      "modelName": "Test Subject Beta (2)",
+      "description": "Rotten betwix thine sight and heart, lays despair.",
+      "promptCaching": {
+        "maximumCacheCheckpointsPerRequest": 4,
+        "minimumTokensPerCacheCheckpoint": 1024,
+        "supportsPromptCaching": true
+      },
+      "rateMultiplier": 99.0,
+      "rateUnit": "Simoleon",
+      "supportedInputTypes": ["TEXT"],
+      "tokenLimits": {
+        "maxInputTokens": 100000,
+        "maxOutputTokens": null
+      },
+      "api_key": "should-be-stripped",
+      "internal_note": "testing field stripping"
+    },
+    {
+      "modelId": "auto",
+      "modelName": "AUTO (Debug)",
+      "description": "Test override, should inherit Kiro's function.",
+      "promptCaching": {
+        "maximumCacheCheckpointsPerRequest": 4,
+        "minimumTokensPerCacheCheckpoint": 1024,
+        "supportsPromptCaching": true
+      },
+      "rateMultiplier": 1.0,
+      "rateUnit": "Credit",
+      "supportedInputTypes": ["TEXT", "IMAGE"],
+      "tokenLimits": {
+        "maxInputTokens": 200000,
+        "maxOutputTokens": null
+      },
+      "override_test": true,
+      "metadata": {
+        "test": "this entire field should be stripped"
+      }
+    }
+  ]
+}

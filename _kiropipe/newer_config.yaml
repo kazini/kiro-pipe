@@ -1,0 +1,122 @@
+# KiroPipe Configuration
+# Deep LiteLLM integration for universal LLM provider support
+
+# Proxy settings
+proxy:
+  port: 29974
+
+# Kiro executable
+kiro:
+  exe_path: null  # Auto-detect
+
+# Kiro endpoint settings (TRUE = allow, FALSE = block)
+kiro_endpoint:
+  telemetry: false
+  updates: false
+  models: true
+  force_toggle_usage_limits: null  # Auto mode
+
+# Debug settings
+debug:
+  debug_mode_enabled: true
+  store_interaction_blocks: false
+
+# Default model (used on startup)
+default_model: "kiro-default"
+
+# Providers
+providers:
+  kiro:
+    enabled: true
+    type: passthrough
+    description: "Kiro's default AWS Q models"
+    models:
+      - name: "kiro-default"
+        alias: ["kiro", "default", "aws-q"]
+        description: "Kiro's default model"
+  
+  anthropic:
+    enabled: false
+    type: anthropic
+    api_base: "https://api.anthropic.com/v1"
+    api_key: null
+    description: "Anthropic Claude models (direct API)"
+    models:
+      - name: "claude-3-5-sonnet-20241022"
+        alias: ["claude", "sonnet"]
+        display_name: "Claude 3.5 Sonnet"
+        description: "Claude 3.5 Sonnet"
+        max_tokens: 8192
+
+  litellm:
+    enabled: true
+    type: litellm
+    description: "Universal LLM interface (100+ providers)"
+## =================================================== ##
+    ollama:
+      api_base: "http://localhost:11434"
+      api_key: null
+      models:
+        - name: "ollama/llama3.2"
+          enabled: false
+          alias: ["llama", "local"]
+          display_name: "Llama 3.2 (Local)"
+          description: "Meta Llama 3.2 via Ollama"
+          max_tokens: 4096
+        
+        - name: "ollama/qwen2.5-coder"
+          enabled: false
+          alias: ["qwen", "coder"]
+          display_name: "Qwen 2.5 Coder (Local)"
+          description: "Qwen 2.5 Coder via Ollama"
+          max_tokens: 4096
+    # -------------------------------------------- #
+    groq:
+      api_base: "https://api.groq.com/openai/v1"
+      api_key: null
+      models:
+        - name: "groq/llama-3.3-70b-versatile"
+          alias: ["groq-llama-flex"]
+          display_name: "Groq Llama Flex 3.3 70B"
+          description: "Flexible and capable."
+          max_tokens: 8192
+        
+        - name: "groq/llama-3.1-8b-instant"
+          alias: ["groq-llama-lite"]
+          display_name: "Groq Llama Lite 3.1 8B"
+          description: "Fast and with large capacity."
+          max_tokens: 32768
+    # -------------------------------------------- #
+    openrouter:
+      api_base: "https://openrouter.ai/api/v1"
+      api_key: null
+      models:
+        - name: "openrouter/deepseek/deepseek-r1-0528:free"
+          alias: ["deepseek-r1-0528"]
+          display_name: "DeepSeek R1"
+          description: "Pretty decent, if you give it time to breathe."
+          max_tokens: 8192
+        
+        - name: "openrouter/google/gemini-2.0-flash-exp:free"
+          alias: ["gemini-free"]
+          display_name: "Gemini 2.0 Flash (Free)"
+          description: "1 million token context, very nice! Very daft."
+          max_tokens: 8192
+    # -------------------------------------------- #
+    openai:
+      api_base: "https://api.openai.com/v1"
+      api_key: null
+      enabled: false
+      models:
+        - name: "gpt-4o"
+          alias: ["gpt4", "openai"]
+          display_name: "GPT-4o"
+          description: "OpenAI GPT-4o"
+          max_tokens: 4096
+        
+        - name: "gpt-4o-mini"
+          alias: ["gpt4-mini"]
+          display_name: "GPT-4o Mini"
+          description: "OpenAI GPT-4o Mini (cheaper)"
+          max_tokens: 4096
+## =================================================== ##    

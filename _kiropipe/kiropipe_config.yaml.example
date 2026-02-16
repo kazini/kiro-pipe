@@ -1,0 +1,168 @@
+# KiroPipe Configuration
+# Copy this file to kiropipe_config.yaml and customize
+
+proxy:
+  port: 29974
+
+kiro:
+  exe_path: null  # Path to Kiro.exe (null = auto-detect)
+
+# TRUE = allow, FALSE = block
+kiro_endpoint:
+  telemetry: false
+  updates: false
+  models: true
+  force_toggle_usage_limits: null  # null=auto, true=always allow, false=always block
+
+debug:
+  debug_mode_enabled: false
+  store_interaction_blocks: false
+
+# ============================================================
+# MODEL PROVIDERS
+# ============================================================
+# Each provider MUST have an api_base (custom endpoint support)
+# This allows using proxies, custom deployments, or compatible APIs
+
+providers:
+  # Kiro's default AWS Q models (passthrough)
+  # Note: Passthrough type ignores api_base - uses native Kiro connection
+  kiro:
+    enabled: true
+    type: passthrough
+    description: "Kiro's default AWS Q models"
+    models:
+      - name: "kiro-default"
+        alias: ["kiro", "default", "aws-q"]
+        description: "Kiro's default model"
+  
+  # Anthropic Claude (PRIMARY SUPPORTED MODE)
+  # api_base: Custom endpoint (e.g., proxy, custom deployment)
+  anthropic:
+    enabled: false
+    type: anthropic
+    api_base: "https://api.anthropic.com"
+    api_key: null  # Or set ANTHROPIC_API_KEY environment variable
+    description: "Anthropic Claude models"
+    models:
+      - name: "claude-3-5-sonnet-20241022"
+        display_name: "Claude 3.5 Sonnet"
+        alias: ["claude", "sonnet"]
+        description: "Claude 3.5 Sonnet - Best quality"
+        max_tokens: 4096
+      
+      - name: "claude-3-5-haiku-20241022"
+        display_name: "Claude 3.5 Haiku"
+        alias: ["haiku"]
+        description: "Claude 3.5 Haiku - Fast and efficient"
+        max_tokens: 4096
+  
+  # LiteLLM (universal interface - converts formats automatically)
+  # Each sub-provider has its own api_base for custom endpoints
+  litellm:
+    enabled: false
+    type: litellm
+    description: "Universal LLM interface"
+    
+    # Ollama (local, free)
+    ollama:
+      api_base: "http://localhost:11434"
+      api_key: null  # Not needed for Ollama
+      models:
+        - name: "ollama/llama3.2"
+          alias: ["llama"]
+          description: "Llama 3.2 - Fast local model"
+          max_tokens: 4096
+        
+        - name: "ollama/qwen2.5-coder:7b"
+          alias: ["qwen", "coder"]
+          description: "Qwen 2.5 Coder - Best for coding"
+          max_tokens: 4096
+    
+    # Groq (cloud, free - 14,400 req/day)
+    groq:
+      api_base: "https://api.groq.com/openai/v1"
+      api_key: null  # Get free key at https://groq.com
+      models:
+        - name: "groq/llama-3.1-70b-versatile"
+          alias: ["groq"]
+          description: "Groq Llama 3.1 70B - Very fast"
+          max_tokens: 4096
+    
+    # OpenAI or OpenAI-compatible APIs
+    # Examples:
+    # - OpenAI: "https://api.openai.com/v1"
+    # - OpenRouter: "https://openrouter.ai/api/v1"
+    # - Together AI: "https://api.together.xyz/v1"
+    # - Any OpenAI-compatible endpoint
+    openai:
+      api_base: "https://api.openai.com/v1"
+      api_key: null  # Or set OPENAI_API_KEY
+      models:
+        - name: "openai/gpt-4"
+          alias: ["gpt4"]
+          description: "GPT-4 via OpenAI"
+          max_tokens: 4096
+    
+    # OpenRouter example (OpenAI-compatible)
+    openrouter:
+      api_base: "https://openrouter.ai/api/v1"
+      api_key: null  # Get key at https://openrouter.ai
+      models:
+        - name: "openai/gpt-4-turbo"  # Use OpenAI format with OpenRouter
+          alias: ["openrouter", "or-gpt4"]
+          description: "GPT-4 Turbo via OpenRouter"
+          max_tokens: 4096
+
+default_model: "kiro-default"
+
+# ============================================================
+# CUSTOM ENDPOINT EXAMPLES
+# ============================================================
+
+# Example 1: Use OpenRouter with OpenAI format
+# litellm:
+#   enabled: true
+#   openrouter:
+#     api_base: "https://openrouter.ai/api/v1"
+#     api_key: "your-openrouter-key"
+#     models:
+#       - name: "openai/gpt-4-turbo"
+#         alias: ["or"]
+# default_model: "or"
+
+# Example 2: Use local Ollama
+# litellm:
+#   enabled: true
+#   ollama:
+#     api_base: "http://localhost:11434"
+#     models:
+#       - name: "ollama/llama3.2"
+#         alias: ["llama"]
+# default_model: "llama"
+
+# Example 3: Use Anthropic via custom proxy
+# anthropic:
+#   enabled: true
+#   api_base: "https://your-proxy.com/anthropic"
+#   api_key: "your-key"
+#   models:
+#     - name: "claude-3-5-sonnet-20241022"
+#       alias: ["claude"]
+# default_model: "claude"
+
+# ============================================================
+# LITELLM FORMAT CONVERSION
+# ============================================================
+# LiteLLM automatically converts between API formats!
+# The bridge uses Anthropic format, but LiteLLM converts to:
+# - OpenAI: Use "openai/gpt-4"
+# - Ollama: Use "ollama/llama3.2"
+# - Groq: Use "groq/llama-3.1-70b-versatile"
+# - 100+ other providers
+#
+# ONE bridge implementation supports ALL providers!
+#
+# Custom endpoints work with any OpenAI-compatible API:
+# - OpenRouter, Together AI, Perplexity, etc.
+# - Just set api_base to their endpoint URL

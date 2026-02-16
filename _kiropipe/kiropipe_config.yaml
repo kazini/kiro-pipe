@@ -1,0 +1,82 @@
+# KiroPipe Configuration
+# This is a minimal working configuration
+
+# Proxy settings
+proxy:
+  port: 29974
+
+# Kiro executable
+kiro:
+  exe_path: null  # Auto-detect
+
+# Kiro endpoint settings (TRUE = allow, FALSE = block)
+kiro_endpoint:
+  telemetry: false
+  updates: false
+  models: true
+  force_toggle_usage_limits: null  # Auto mode
+
+# Debug settings
+debug:
+  debug_mode_enabled: true
+  store_interaction_blocks: false
+
+# Providers
+providers:
+  kiro:
+    enabled: true
+    type: passthrough
+    description: "Kiro's default AWS Q models"
+    models:
+      - name: "kiro-default"
+        alias: ["kiro", "default", "aws-q"]
+        description: "Kiro's default model"
+  
+  # Anthropic Claude (direct API)
+  anthropic:
+    enabled: true
+    type: anthropic
+    api_base: "https://api.anthropic.com/v1"
+    api_key: null
+    description: "Anthropic Claude models"
+    models:
+      - name: "claude-haiku-4-5-20251001"
+        display_name: "Claude 4.5 Haiku"
+        alias: ["claude", "haiku"]
+        description: "Claude 4.5 Haiku"
+        max_tokens: 4096
+  
+  # LiteLLM (universal interface)
+  litellm:
+    enabled: true
+    type: litellm
+    description: "Universal LLM interface"
+    
+    groq:
+      api_base: "https://api.groq.com/openai/v1"
+      api_key: null
+      models:
+        - name: "groq/llama-3.1-70b-versatile"
+          alias: ["groq"]
+          max_tokens: 4096
+    
+    # OpenAI / OpenRouter
+    openai:
+      api_base: "https://api.openai.com/v1"  # Or "https://openrouter.ai/api/v1"
+      api_key: null
+      models:
+        - name: "openai/gpt-4"
+          alias: ["gpt4"]
+          max_tokens: 4096
+    
+    # Ollama (local)
+    ollama:
+      api_base: "http://localhost:11434"
+      api_key: null
+      models:
+        - name: "ollama/llama3.2"
+          alias: ["llama"]
+          max_tokens: 4096
+
+# Default model
+default_model: "kiro-default"
