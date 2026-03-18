@@ -1,0 +1,39 @@
+{
+  "name": "kiro-mask",
+  "version": "0.1.0",
+  "description": "MITM proxy to redirect Kiro's AWS Q traffic to custom LLM providers",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "dev":        "nodemon --exec 'npx tsx src/index.ts' --ext ts --watch src",
+    "start":      "npx tsx src/index.ts",
+    "build":      "tsc",
+    "typecheck":  "tsc --noEmit",
+    "lint":       "eslint src/**/*.ts",
+    "lint:fix":   "eslint src/**/*.ts --fix",
+    "fmt":        "prettier --write 'src/**/*.ts' 'devtools/**/*.ts'"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "chalk":             "^5.4.1",
+    "crc-32":            "^1.2.2",
+    "mockttp":           "^3.15.0",
+    "openai":            "^4.89.0",
+    "yaml":              "^2.7.0",
+    "zod":               "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node":                    "^22.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser":      "^8.0.0",
+    "eslint":                         "^9.0.0",
+    "nodemon":                        "^3.1.0",
+    "prettier":                       "^3.5.0",
+    "tsx":                            "^4.19.0",
+    "typescript":                     "^5.8.0",
+    "vitest":                         "^3.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -1,0 +1,139 @@
+# kiromask.config.yaml
+# Copy this to kiromask.config.yaml and fill in your keys.
+# All values shown are defaults unless noted.
+
+proxy:
+  port: 29974
+
+kiro:
+  exe_path: null          # null = auto-detect Kiro.exe
+
+# TRUE = allow through to AWS Q, FALSE = block and fake a response
+kiro_endpoint:
+  telemetry:          false
+  updates:            false
+  models:             true   # allow Kiro's native model list
+  force_usage_limits: null   # null=auto, true=always allow, false=always block
+
+portkey:
+  enabled: false
+  api_key: null
+
+debug:
+  enabled:            false
+  log_level:          "info"   # error | warn | info | debug
+  save_interactions:  false
+  output_dir:         "./logs"
+
+# ─────────────────────────────────────────────────────────────────
+# PROVIDERS
+# type: passthrough → passes requests directly to AWS Q (Kiro native)
+# type: anthropic   → Anthropic Messages API format
+# type: openai      → OpenAI Chat Completions format
+#                     (covers OpenRouter, Groq, Ollama, Together AI, etc.)
+# ─────────────────────────────────────────────────────────────────
+
+providers:
+
+  # Kiro's native AWS Q models — always keep enabled: true unless you
+  # want to block all native Kiro requests (not recommended).
+  kiro:
+    enabled: true
+    type: passthrough
+    description: "Kiro's default AWS Q models"
+    models:
+      - name: "kiro-default"
+        alias: ["kiro", "default", "aws-q"]
+        description: "Kiro's default model"
+
+  # ── Anthropic ──────────────────────────────────────────────────
+  anthropic:
+    enabled: false
+    type: anthropic
+    api_base: "https://api.anthropic.com"
+    api_key: null                   # or set ANTHROPIC_API_KEY env var
+    portkey_virtual_key: null       # set if portkey.enabled: true
+    retry:
+      max_attempts: 3
+      base_delay_ms: 1000
+      max_delay_ms: 30000
+    models:
+      - name: "claude-3-5-sonnet-20241022"
+        display_name: "Claude 3.5 Sonnet"
+        alias: ["claude", "sonnet"]
+        description: "Claude 3.5 Sonnet — best quality"
+        max_tokens: 8192
+        max_input_tokens: 200000
+
+      - name: "claude-3-5-haiku-20241022"
+        display_name: "Claude 3.5 Haiku"
+        alias: ["haiku"]
+        description: "Claude 3.5 Haiku — fast and efficient"
+        max_tokens: 4096
+        max_input_tokens: 200000
+
+  # ── OpenRouter (OpenAI-compatible, many models) ────────────────
+  openrouter:
+    enabled: false
+    type: openai
+    api_base: "https://openrouter.ai/api/v1"
+    api_key: null                   # or set OPENROUTER_API_KEY env var
+    discover_models: false          # true = fetch all models from /models at startup
+    model_filter: null              # optional regex e.g. "^anthropic/"
+    retry:
+      max_attempts: 5
+      base_delay_ms: 1000
+      max_delay_ms: 60000
+    models: []                      # leave empty if discover_models: true
+
+  # ── Groq (OpenAI-compatible, free tier, very fast) ─────────────
+  groq:
+    enabled: false
+    type: openai
+    api_base: "https://api.groq.com/openai/v1"
+    api_key: null                   # or set GROQ_API_KEY env var
+    retry:
+      max_attempts: 4
+      base_delay_ms: 2000           # Groq free tier needs breathing room
+      max_delay_ms: 30000
+    models:
+      - name: "llama-3.3-70b-versatile"
+        display_name: "Llama 3.3 70B"
+        alias: ["llama", "groq"]
+        description: "Llama 3.3 70B via Groq (free tier)"
+        max_tokens: 8192
+
+  # ── Ollama (local, OpenAI-compatible) ─────────────────────────
+  ollama:
+    enabled: false
+    type: openai
+    api_base: "http://localhost:11434/v1"
+    api_key: "ollama"               # Ollama requires any non-empty string
+    discover_models: false          # true = fetch from /api/tags
+    retry:
+      max_attempts: 2
+      base_delay_ms: 500
+      max_delay_ms: 5000
+    models:
+      - name: "llama3.2"
+        display_name: "Llama 3.2"
+        alias: ["llama"]
+        description: "Llama 3.2 — local"
+        max_tokens: 4096
+
+  # ── OpenAI ────────────────────────────────────────────────────
+  openai:
+    enabled: false
+    type: openai
+    api_base: "https://api.openai.com/v1"
+    api_key: null                   # or set OPENAI_API_KEY env var
+    retry:
+      max_attempts: 3
+      base_delay_ms: 1000
+      max_delay_ms: 30000
+    models:
+      - name: "gpt-4o"
+        display_name: "GPT-4o"
+        alias: ["gpt4o", "gpt4"]
+        description: "OpenAI GPT-4o"
+        max_tokens: 4096
