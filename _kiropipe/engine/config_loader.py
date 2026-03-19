@@ -139,6 +139,7 @@ class Config:
             if not provider_config.get('enabled', False):
                 continue
             
+            # Get models from top-level 'models' array
             models = provider_config.get('models', [])
             for model in models:
                 model_name = model.get('name')
@@ -148,7 +149,8 @@ class Config:
                 # Add model name
                 self.model_map[model_name] = {
                     'provider': provider_name,
-                    'model': model
+                    'model': model,
+                    'sub_provider': None
                 }
                 
                 # Add aliases
@@ -156,8 +158,42 @@ class Config:
                 for alias in aliases:
                     self.model_map[alias] = {
                         'provider': provider_name,
-                        'model': model
+                        'model': model,
+                        'sub_provider': None
                     }
+            
+            # For LiteLLM, also check sub-providers (groq, openai, ollama, etc.)
+            if provider_name == 'litellm':
+                for sub_provider_name, sub_provider_config in provider_config.items():
+                    # Skip non-dict entries (like 'enabled', 'type', 'description')
+                    if not isinstance(sub_provider_config, dict):
+                        continue
+                    
+                    # Skip if it doesn't have models
+                    if 'models' not in sub_provider_config:
+                        continue
+                    
+                    sub_models = sub_provider_config.get('models', [])
+                    for model in sub_models:
+                        model_name = model.get('name')
+                        if not model_name:
+                            continue
+                        
+                        # Add model name
+                        self.model_map[model_name] = {
+                            'provider': provider_name,
+                            'model': model,
+                            'sub_provider': sub_provider_name
+                        }
+                        
+                        # Add aliases
+                        aliases = model.get('alias', [])
+                        for alias in aliases:
+                            self.model_map[alias] = {
+                                'provider': provider_name,
+                                'model': model,
+                                'sub_provider': sub_provider_name
+                            }
     
     def get_model_info(self, model_identifier: str) -> Optional[Dict[str, Any]]:
         """Get model info by name or alias"""
@@ -284,14 +320,39 @@ class Config:
             if not provider_config.get('enabled', False):
                 continue
             
+            # Get models from top-level 'models' array
             for model in provider_config.get('models', []):
                 models.append({
                     'provider': provider_name,
                     'name': model.get('name'),
+                    'display_name': model.get('display_name'),
                     'aliases': model.get('alias', []),
                     'description': model.get('description', ''),
-                    'max_tokens': model.get('max_tokens', 4096)
+                    'max_tokens': model.get('max_tokens', 4096),
+                    'sub_provider': None
                 })
+            
+            # For LiteLLM, also get models from sub-providers
+            if provider_name == 'litellm':
+                for sub_provider_name, sub_provider_config in provider_config.items():
+                    # Skip non-dict entries
+                    if not isinstance(sub_provider_config, dict):
+                        continue
+                    
+                    # Skip if it doesn't have models
+                    if 'models' not in sub_provider_config:
+                        continue
+                    
+                    for model in sub_provider_config.get('models', []):
+                        models.append({
+                            'provider': provider_name,
+                            'name': model.get('name'),
+                            'display_name': model.get('display_name'),
+                            'aliases': model.get('alias', []),
+                            'description': model.get('description', f'{sub_provider_name} model'),
+                            'max_tokens': model.get('max_tokens', 4096),
+                            'sub_provider': sub_provider_name
+                        })
         
         return models
     

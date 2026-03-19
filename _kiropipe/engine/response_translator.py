@@ -38,6 +38,7 @@ def translate_anthropic_stream(response_stream: Iterator[Dict[str, Any]],
     tool_use_index = {}  # Map index to tool ID
     total_input_tokens = 0
     total_output_tokens = 0
+    has_usage_data = False  # Track if we got usage data
     
     for event in response_stream:
         event_type = event.get('type')
@@ -46,7 +47,9 @@ def translate_anthropic_stream(response_stream: Iterator[Dict[str, Any]],
             # Extract usage from message start
             message = event.get('message', {})
             usage = message.get('usage', {})
-            total_input_tokens = usage.get('input_tokens', 0)
+            if usage:
+                total_input_tokens = usage.get('input_tokens', 0)
+                has_usage_data = True
         
         elif event_type == 'content_block_start':
             # Check if it's a tool use block
@@ -110,11 +113,13 @@ def translate_anthropic_stream(response_stream: Iterator[Dict[str, Any]],
             # Extract output tokens
             delta = event.get('delta', {})
             usage = event.get('usage', {})
-            total_output_tokens = usage.get('output_tokens', 0)
+            if usage:
+                total_output_tokens = usage.get('output_tokens', 0)
+                has_usage_data = True
         
         elif event_type == 'message_stop':
-            # End of message - send usage metrics
-            if include_usage and (total_input_tokens or total_output_tokens):
+            # End of message - send usage metrics only if we have data
+            if include_usage and has_usage_data and (total_input_tokens or total_output_tokens):
                 # Call usage callback if provided
                 if usage_callback:
                     try:
@@ -153,6 +158,7 @@ def translate_openai_stream(response_stream: Iterator[Dict[str, Any]],
     tool_calls_buffer = {}  # Buffer for accumulating tool calls
     total_prompt_tokens = 0
     total_completion_tokens = 0
+    has_usage_data = False  # Track if we got usage data
     
     for chunk in response_stream:
         choices = chunk.get('choices', [])
@@ -209,13 +215,14 @@ def translate_openai_stream(response_stream: Iterator[Dict[str, Any]],
                     is_final=True  # Mark as final chunk
                 )
             
-            # Send usage if available
+            # Check for usage in the chunk
             if include_usage:
                 usage = chunk.get('usage', {})
                 if usage:
                     total_prompt_tokens = usage.get('prompt_tokens', 0)
                     total_completion_tokens = usage.get('completion_tokens', 0)
                     total_tokens = usage.get('total_tokens', 0)
+                    has_usage_data = True
                     
                     # Call usage callback if provided
                     if usage_callback:
@@ -224,12 +231,16 @@ def translate_openai_stream(response_stream: Iterator[Dict[str, Any]],
                         except Exception as e:
                             print(f"[Warning] Usage callback failed: {e}")
                     
+                    # Only send metering if we have actual usage data
                     credits = total_tokens / 10000
                     yield encode_metering(credits)
                     
                     if total_prompt_tokens > 0:
                         context_pct = (total_prompt_tokens / 200000) * 100
                         yield encode_context_usage(context_pct)
+    
+    # If we finished without usage data, don't send metering events
+    # This prevents showing "Credits used" when the provider doesn't report usage
 
 
 def parse_anthropic_sse(sse_text: str) -> Iterator[Dict[str, Any]]:
