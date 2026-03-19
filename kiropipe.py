@@ -238,6 +238,9 @@ class KiroInterceptor:
         self.model_is_kiro = True  # Track if current model is Kiro's
         self.start_time = time.time()  # Track when proxy started
         self.usage_tracker = None  # Will be initialized on first use
+        self.pending_simple_task = None  # Store pending simple-task request
+        self.simple_task_lock = threading.Lock()  # Lock for simple-task handling
+        self.last_real_model = None  # Track last non-simple-task model
     
     def __del__(self):
         """Cleanup and print usage summary on shutdown"""
@@ -377,6 +380,7 @@ class KiroInterceptor:
             # Step 1: Parse request to determine which model is being used
             selected_model = None
             is_intent_classification = False
+            request_hash = None
             try:
                 body = json.loads(flow.request.text)
                 # Model ID is nested in conversationState.currentMessage.userInputMessage
@@ -390,9 +394,17 @@ class KiroInterceptor:
                 # Check if this is an intent classification request
                 is_intent_classification = flow.request.headers.get('x-amzn-kiro-agent-mode') == 'intent-classification'
                 
+                # Create a hash of the request to detect duplicates
+                import hashlib
+                request_content = body.get('conversationState', {}).get('currentMessage', {}).get('userInputMessage', {}).get('content', '')
+                request_hash = hashlib.md5(f"{selected_model}:{request_content}".encode()).hexdigest()[:8]
+                
                 if DEBUG_MODE_ENABLED:
                     print(f"{Fore.MAGENTA}[DEBUG] Parsed model from request: {selected_model}{Style.RESET_ALL}")
                     print(f"{Fore.MAGENTA}[DEBUG] Intent classification: {is_intent_classification}{Style.RESET_ALL}")
+                    print(f"{Fore.MAGENTA}[DEBUG] Request hash: {request_hash}{Style.RESET_ALL}")
+                    if is_intent_classification:
+                        print(f"{Fore.MAGENTA}[DEBUG] Header value: {flow.request.headers.get('x-amzn-kiro-agent-mode')}{Style.RESET_ALL}")
             except Exception as e:
                 if DEBUG_MODE_ENABLED:
                     print(f"{Fore.RED}[ERROR] Failed to parse request body: {e}{Style.RESET_ALL}")
@@ -402,10 +414,85 @@ class KiroInterceptor:
                 if DEBUG_MODE_ENABLED:
                     print(f"{Fore.MAGENTA}[DEBUG] Model found, updating tracking{Style.RESET_ALL}")
                 
+                # Check if this is a simple-task (intent classification) request
+                if selected_model == 'simple-task':
+                    with self.simple_task_lock:
+                        if DEBUG_MODE_ENABLED:
+                            print(f"{Fore.YELLOW}[SIMPLE-TASK] Received, holding request...{Style.RESET_ALL}")
+                        
+                        # Store this flow to hold it
+                        self.pending_simple_task = {
+                            'flow': flow,
+                            'timestamp': time.time(),
+                            'body': body,
+                            'request_hash': request_hash
+                        }
+                        
+                        # Don't respond yet - just return and hold the request
+                        # The next request will decide what to do with this
+                        return
+                
+                # This is a real model request (not simple-task)
+                # Check if we have a pending simple-task
+                with self.simple_task_lock:
+                    if self.pending_simple_task:
+                        pending_flow = self.pending_simple_task['flow']
+                        pending_time = self.pending_simple_task['timestamp']
+                        age = time.time() - pending_time
+                        
+                        if DEBUG_MODE_ENABLED:
+                            print(f"{Fore.YELLOW}[SIMPLE-TASK] Found pending request (age: {age:.3f}s){Style.RESET_ALL}")
+                        
+                        # Check if this model is passthrough or custom
+                        model_info = CONFIG.get_model_info(selected_model)
+                        is_passthrough = model_info and model_info['provider'] == 'kiro'
+                        
+                        if is_passthrough:
+                            if DEBUG_MODE_ENABLED:
+                                print(f"{Fore.GREEN}[SIMPLE-TASK] Next model is passthrough, allowing simple-task through{Style.RESET_ALL}")
+                            
+                            # Clear the pending request - it will go through to AWS naturally
+                            # (we don't set a response, so mitmproxy will forward it)
+                            self.pending_simple_task = None
+                            
+                            # Now continue processing this request normally
+                        else:
+                            if DEBUG_MODE_ENABLED:
+                                print(f"{Fore.YELLOW}[SIMPLE-TASK] Next model is custom, blocking simple-task{Style.RESET_ALL}")
+                            
+                            # Block the pending simple-task by sending a mock response
+                            from engine.event_stream_encoder import encode_text_chunk, encode_metering
+                            
+                            mock_response = b''.join([
+                                encode_text_chunk("proceed"),
+                                encode_metering(0.0)
+                            ])
+                            
+                            pending_flow.response = http.Response.make(
+                                200,
+                                mock_response,
+                                {
+                                    'Content-Type': 'application/vnd.amazon.eventstream',
+                                    'x-amzn-RequestId': 'intent-bypass-simple-task'
+                                }
+                            )
+                            
+                            # Clear the pending request
+                            self.pending_simple_task = None
+                            
+                            # Now continue processing this custom model request
+                
                 # Update current model tracking
                 old_model = self.current_model
                 self.current_model = selected_model
-                self.model_is_kiro = selected_model in self.kiro_model_ids
+                self.last_real_model = selected_model  # Track last non-simple-task model
+                
+                # Update model type tracking
+                model_info = CONFIG.get_model_info(selected_model)
+                if model_info:
+                    self.model_is_kiro = model_info['provider'] == 'kiro'
+                else:
+                    self.model_is_kiro = selected_model in self.kiro_model_ids
                 
                 if DEBUG_MODE_ENABLED and selected_model != old_model:
                     model_type = "Kiro" if self.model_is_kiro else "Custom"
@@ -419,30 +506,6 @@ class KiroInterceptor:
                     print(f"{Fore.YELLOW}[ROUTING CHECK] Model info from config: {model_info}{Style.RESET_ALL}")
                     print(f"{Fore.YELLOW}[ROUTING CHECK] Provider: {model_info['provider'] if model_info else 'None'}{Style.RESET_ALL}")
                 
-                # Step 3.5: Bypass intent classification for custom models
-                if model_info and model_info['provider'] != 'kiro' and is_intent_classification:
-                    if DEBUG_MODE_ENABLED:
-                        print(f"\n{Fore.YELLOW} [BYPASS INTENT CLASSIFICATION]{Style.RESET_ALL}")
-                        print(f"  {Fore.CYAN}Reason:{Style.RESET_ALL} Custom model selected, skipping intent classification")
-                    
-                    # Return a mock response that indicates "proceed with full request"
-                    # This tells Kiro to skip intent classification and go straight to the full request
-                    from engine.event_stream_encoder import encode_text_chunk, encode_metering
-                    
-                    mock_response = b''.join([
-                        encode_text_chunk("proceed"),  # Simple text response
-                        encode_metering(0.0)  # No cost for mock response
-                    ])
-                    
-                    flow.response = http.Response.make(
-                        200,
-                        mock_response,
-                        {
-                            'Content-Type': 'application/vnd.amazon.eventstream',
-                            'x-amzn-RequestId': f'intent-bypass-{selected_model}'
-                        }
-                    )
-                    return
                 
                 # Step 4: Route to custom provider if not Kiro
                 if model_info and model_info['provider'] != 'kiro':
@@ -459,7 +522,7 @@ class KiroInterceptor:
                         from engine.retry_handler import RetryHandler, RetryConfig
                         from engine.usage_tracker import UsageTracker
                         
-                        # Initialize retry handler and usage tracker
+                        # Initialize retry handler
                         retry_handler = RetryHandler(RetryConfig(
                             max_retries=3,
                             base_delay=1.0,
@@ -467,8 +530,8 @@ class KiroInterceptor:
                             timeout=300.0
                         ))
                         
-                        # Initialize usage tracker (shared instance)
-                        if not hasattr(self, 'usage_tracker'):
+                        # Initialize usage tracker (shared instance) - always initialize
+                        if not hasattr(self, 'usage_tracker') or self.usage_tracker is None:
                             self.usage_tracker = UsageTracker()
                         
                         # Parse AWS request
@@ -477,7 +540,13 @@ class KiroInterceptor:
                         # Extract conversation ID for usage tracking
                         conversation_id = aws_body.get('conversationState', {}).get('conversationId', 'unknown')
                         
-                        if provider_name == 'anthropic':
+                        # Get provider type to determine how to route
+                        provider_type = provider_config.get('type', provider_name)
+                        
+                        if DEBUG_MODE_ENABLED:
+                            print(f"{Fore.YELLOW}[ROUTING] Provider: {provider_name}, Type: {provider_type}{Style.RESET_ALL}")
+                        
+                        if provider_type == 'anthropic':
                             # Import request translator
                             from engine.request_translator import translate_to_anthropic
                             
@@ -502,92 +571,197 @@ class KiroInterceptor:
                                 if 'tools' in anthropic_request:
                                     print(f"  {Fore.CYAN}Tools:{Style.RESET_ALL} {len(anthropic_request['tools'])}")
                             
-                            # Define API call function for retry handler
-                            def make_anthropic_call():
-                                with httpx.Client(timeout=300.0) as client:
-                                    return client.stream(
-                                        "POST",
-                                        f"{api_base}/messages",
-                                        json=anthropic_request,
-                                        headers={
-                                            "x-api-key": api_key,
-                                            "anthropic-version": "2023-06-01",
-                                            "content-type": "application/json"
-                                        }
-                                    )
-                            
-                            # Execute with retry logic
-                            response_stream = retry_handler.execute_with_retry(make_anthropic_call)
-                            
-                            with response_stream as response:
-                                if DEBUG_MODE_ENABLED:
-                                    print(f"{Fore.GREEN} [ANTHROPIC]{Style.RESET_ALL} Response: {Fore.CYAN}{response.status_code}{Style.RESET_ALL}")
-                                
-                                if response.status_code != 200:
-                                    # Error response - return as-is
-                                    error_content = response.read()
-                                    flow.response = http.Response.make(
-                                        response.status_code,
-                                        error_content,
-                                        dict(response.headers)
-                                    )
-                                    return
-                                
-                                # Import response translator
-                                from engine.response_translator import translate_anthropic_stream
-                                
-                                # Parse SSE stream and translate to AWS format
-                                def anthropic_event_generator():
-                                    """Parse Anthropic SSE stream into event objects"""
-                                    buffer = ""
-                                    for chunk in response.iter_text():
-                                        buffer += chunk
-                                        # Process complete lines
-                                        while '\n' in buffer:
-                                            line, buffer = buffer.split('\n', 1)
-                                            line = line.strip()
-                                            if line.startswith('data: '):
-                                                data = line[6:]  # Remove 'data: ' prefix
-                                                if data and data != '[DONE]':
-                                                    try:
-                                                        yield json.loads(data)
-                                                    except json.JSONDecodeError:
-                                                        pass
-                                
-                                # Create usage callback for tracking
-                                def usage_callback(input_tokens, output_tokens):
-                                    self.usage_tracker.track_request(
-                                        conversation_id=conversation_id,
-                                        model=self.current_model,
-                                        input_tokens=input_tokens,
-                                        output_tokens=output_tokens,
-                                        metadata={'provider': 'anthropic'}
-                                    )
-                                    if DEBUG_MODE_ENABLED:
-                                        print(f"{Fore.CYAN} [USAGE]{Style.RESET_ALL} Tracked: {input_tokens} in, {output_tokens} out")
-                                
-                                # Translate Anthropic events to AWS event stream with usage tracking
-                                aws_binary = b''.join(translate_anthropic_stream(
-                                    anthropic_event_generator(),
-                                    include_usage=True,
-                                    usage_callback=usage_callback
-                                ))
-                                
-                                if DEBUG_MODE_ENABLED:
-                                    print(f"{Fore.GREEN} [ANTHROPIC]{Style.RESET_ALL} Translated to AWS format: {Fore.YELLOW}{len(aws_binary)} bytes{Style.RESET_ALL}")
-                                
-                                # Return AWS event stream response
-                                flow.response = http.Response.make(
-                                    200,
-                                    aws_binary,
-                                    {
-                                        'Content-Type': 'application/vnd.amazon.eventstream',
-                                        'x-amzn-RequestId': f'anthropic-{self.current_model}'
+                            # Call Anthropic API with streaming
+                            # Note: We can't use retry_handler here because it would close the stream
+                            with httpx.Client(timeout=300.0) as client:
+                                response_stream = client.stream(
+                                    "POST",
+                                    f"{api_base}/messages",
+                                    json=anthropic_request,
+                                    headers={
+                                        "x-api-key": api_key,
+                                        "anthropic-version": "2023-06-01",
+                                        "content-type": "application/json"
                                     }
                                 )
-                                return
+                            
+                                with response_stream as response:
+                                    if DEBUG_MODE_ENABLED:
+                                        print(f"{Fore.GREEN} [ANTHROPIC]{Style.RESET_ALL} Response: {Fore.CYAN}{response.status_code}{Style.RESET_ALL}")
+                                    
+                                    if response.status_code != 200:
+                                        # Error response - return as-is
+                                        error_content = response.read()
+                                        flow.response = http.Response.make(
+                                            response.status_code,
+                                            error_content,
+                                            dict(response.headers)
+                                        )
+                                        return
+                                    
+                                    # Import response translator
+                                    from engine.response_translator import translate_anthropic_stream
+                                    
+                                    # Parse SSE stream and translate to AWS format
+                                    def anthropic_event_generator():
+                                        """Parse Anthropic SSE stream into event objects"""
+                                        buffer = ""
+                                        for chunk in response.iter_text():
+                                            buffer += chunk
+                                            # Process complete lines
+                                            while '\n' in buffer:
+                                                line, buffer = buffer.split('\n', 1)
+                                                line = line.strip()
+                                                if line.startswith('data: '):
+                                                    data = line[6:]  # Remove 'data: ' prefix
+                                                    if data and data != '[DONE]':
+                                                        try:
+                                                            yield json.loads(data)
+                                                        except json.JSONDecodeError:
+                                                            pass
+                                    
+                                    # Create usage callback for tracking
+                                    def usage_callback(input_tokens, output_tokens):
+                                        self.usage_tracker.track_request(
+                                            conversation_id=conversation_id,
+                                            model=self.current_model,
+                                            input_tokens=input_tokens,
+                                            output_tokens=output_tokens,
+                                            metadata={'provider': 'anthropic'}
+                                        )
+                                        if DEBUG_MODE_ENABLED:
+                                            print(f"{Fore.CYAN} [USAGE]{Style.RESET_ALL} Tracked: {input_tokens} in, {output_tokens} out")
+                                    
+                                    # Translate Anthropic events to AWS event stream with usage tracking
+                                    aws_binary = b''.join(translate_anthropic_stream(
+                                        anthropic_event_generator(),
+                                        include_usage=True,
+                                        usage_callback=usage_callback
+                                    ))
+                                    
+                                    if DEBUG_MODE_ENABLED:
+                                        print(f"{Fore.GREEN} [ANTHROPIC]{Style.RESET_ALL} Translated to AWS format: {Fore.YELLOW}{len(aws_binary)} bytes{Style.RESET_ALL}")
+                                    
+                                    # Return AWS event stream response
+                                    flow.response = http.Response.make(
+                                        200,
+                                        aws_binary,
+                                        {
+                                            'Content-Type': 'application/vnd.amazon.eventstream',
+                                            'x-amzn-RequestId': f'anthropic-{self.current_model}'
+                                        }
+                                    )
+                                    return
                         
-                        elif provider_name == 'litellm':
+                        elif provider_type == 'openai':
+                            # Direct OpenAI API support (without LiteLLM)
+                            # Import request translator
+                            from engine.request_translator import translate_to_openai
+                            
+                            # Transform to OpenAI format using full translation
+                            api_base = provider_config.get('api_base', 'https://api.openai.com/v1')
+                            api_key = provider_config.get('api_key')
+                            
+                            if not api_key:
+                                raise Exception("OpenAI API key not configured")
+                            
+                            # Use full request translation (includes history, tools, tool results)
+                            openai_request = translate_to_openai(
+                                aws_body,
+                                model=self.current_model,
+                                max_tokens=4096
+                            )
+                            
+                            if DEBUG_MODE_ENABLED:
+                                print(f"{Fore.CYAN} [OPENAI]{Style.RESET_ALL} Calling API...")
+                                print(f"  {Fore.CYAN}Model:{Style.RESET_ALL} {self.current_model}")
+                                print(f"  {Fore.CYAN}Messages:{Style.RESET_ALL} {len(openai_request.get('messages', []))}")
+                                if 'tools' in openai_request:
+                                    print(f"  {Fore.CYAN}Tools:{Style.RESET_ALL} {len(openai_request['tools'])}")
+                            
+                            # Call OpenAI API with streaming (with retry logic)
+                            # Note: We can't use retry_handler here because it would close the stream
+                            # Instead, we'll handle retries manually if needed
+                            with httpx.Client(timeout=300.0) as client:
+                                response_stream = client.stream(
+                                    "POST",
+                                    f"{api_base}/chat/completions",
+                                    json=openai_request,
+                                    headers={
+                                        "Authorization": f"Bearer {api_key}",
+                                        "content-type": "application/json"
+                                    }
+                                )
+                            
+                                with response_stream as response:
+                                    if DEBUG_MODE_ENABLED:
+                                        print(f"{Fore.GREEN} [OPENAI]{Style.RESET_ALL} Response: {Fore.CYAN}{response.status_code}{Style.RESET_ALL}")
+                                    
+                                    if response.status_code != 200:
+                                        # Error response - return as-is
+                                        error_content = response.read()
+                                        flow.response = http.Response.make(
+                                            response.status_code,
+                                            error_content,
+                                            dict(response.headers)
+                                        )
+                                        return
+                                    
+                                    # Import response translator
+                                    from engine.response_translator import translate_openai_stream
+                                    
+                                    # Parse SSE stream and translate to AWS format
+                                    def openai_event_generator():
+                                        """Parse OpenAI SSE stream into event objects"""
+                                        buffer = ""
+                                        for chunk in response.iter_text():
+                                            buffer += chunk
+                                            # Process complete lines
+                                            while '\n' in buffer:
+                                                line, buffer = buffer.split('\n', 1)
+                                                line = line.strip()
+                                                if line.startswith('data: '):
+                                                    data = line[6:]  # Remove 'data: ' prefix
+                                                    if data and data != '[DONE]':
+                                                        try:
+                                                            yield json.loads(data)
+                                                        except json.JSONDecodeError:
+                                                            pass
+                                    
+                                    # Create usage callback for tracking
+                                    def usage_callback(input_tokens, output_tokens):
+                                        self.usage_tracker.track_request(
+                                            conversation_id=conversation_id,
+                                            model=self.current_model,
+                                            input_tokens=input_tokens,
+                                            output_tokens=output_tokens,
+                                            metadata={'provider': 'openai'}
+                                        )
+                                        if DEBUG_MODE_ENABLED:
+                                            print(f"{Fore.CYAN} [USAGE]{Style.RESET_ALL} Tracked: {input_tokens} in, {output_tokens} out")
+                                    
+                                    # Translate OpenAI events to AWS event stream with usage tracking
+                                    aws_binary = b''.join(translate_openai_stream(
+                                        openai_event_generator(),
+                                        include_usage=True,
+                                        usage_callback=usage_callback
+                                    ))
+                                    
+                                    if DEBUG_MODE_ENABLED:
+                                        print(f"{Fore.GREEN} [OPENAI]{Style.RESET_ALL} Translated to AWS format: {Fore.YELLOW}{len(aws_binary)} bytes{Style.RESET_ALL}")
+                                    
+                                    # Return AWS event stream response
+                                    flow.response = http.Response.make(
+                                        200,
+                                        aws_binary,
+                                        {
+                                            'Content-Type': 'application/vnd.amazon.eventstream',
+                                            'x-amzn-RequestId': f'openai-{self.current_model}'
+                                        }
+                                    )
+                                    return
+                        
+                        elif provider_type == 'litellm':
                             # Use LiteLLM for universal provider support
                             try:
                                 from litellm import completion
@@ -676,8 +850,8 @@ class KiroInterceptor:
                             return
                         
                         else:
-                            # Other providers not yet implemented
-                            raise Exception(f"Provider {provider_name} not yet implemented")
+                            # Unknown provider type
+                            raise Exception(f"Provider type '{provider_type}' not supported. Use 'anthropic', 'openai', or 'litellm'.")
                         
                     except Exception as e:
                         if DEBUG_MODE_ENABLED:
@@ -858,40 +1032,47 @@ class KiroInterceptor:
 
                         custom_models_added = []
 
-                        # 1. Inject models from config
-                        for provider_name in CONFIG.get_enabled_providers():
+                        # 1. Inject models from config (using get_all_models which handles sub-providers)
+                        all_models = CONFIG.get_all_models()
+                        
+                        for model_info in all_models:
+                            provider_name = model_info['provider']
+                            
+                            # Skip Kiro's own models
                             if provider_name == 'kiro':
-                                continue  # Skip Kiro's own models
+                                continue
+                            
+                            model_id = model_info['name']
+                            # Use display_name if available, otherwise first alias or name
+                            model_name = model_info.get('display_name') or (model_info['aliases'][0] if model_info['aliases'] else model_id)
+                            
+                            # Determine rate unit based on provider and sub-provider
+                            if model_info.get('sub_provider'):
+                                rate_unit = model_info['sub_provider'].upper()  # e.g., "GROQ", "OPENAI", "OLLAMA"
+                            else:
+                                rate_unit = provider_name.upper()  # e.g., "ANTHROPIC", "LITELLM"
 
-                            provider_config = CONFIG.get_provider_config(provider_name)
-                            models = provider_config.get('models', [])
+                            custom_model = {
+                                "modelId": model_id,
+                                "modelName": model_name,
+                                "description": model_info['description'],
+                                "promptCaching": template_model.get('promptCaching', {
+                                    "maximumCacheCheckpointsPerRequest": 4,
+                                    "minimumTokensPerCacheCheckpoint": 1024,
+                                    "supportsPromptCaching": True
+                                }),
+                                "rateMultiplier": None,  # null for config models
+                                "rateUnit": rate_unit,
+                                "supportedInputTypes": ["TEXT", "IMAGE"],
+                                "tokenLimits": template_model.get('tokenLimits', {
+                                    "maxInputTokens": 200000,
+                                    "maxOutputTokens": None
+                                })
+                            }
 
-                            for model in models:
-                                model_id = model.get('name', 'unknown')
-                                # Use display_name if provided, otherwise fall back to first alias or name
-                                model_name = model.get('display_name') or (model.get('alias', [model.get('name', 'Unknown')])[0] if model.get('alias') else model.get('name', 'Unknown'))
-
-                                custom_model = {
-                                    "modelId": model_id,
-                                    "modelName": model_name,
-                                    "description": model.get('description', f"Custom {provider_name} model"),
-                                    "promptCaching": template_model.get('promptCaching', {
-                                        "maximumCacheCheckpointsPerRequest": 4,
-                                        "minimumTokensPerCacheCheckpoint": 1024,
-                                        "supportsPromptCaching": True
-                                    }),
-                                    "rateMultiplier": None,  # null for config models
-                                    "rateUnit": provider_name.upper(),  # Provider name in uppercase
-                                    "supportedInputTypes": ["TEXT", "IMAGE"],
-                                    "tokenLimits": template_model.get('tokenLimits', {
-                                        "maxInputTokens": 200000,
-                                        "maxOutputTokens": None
-                                    })
-                                }
-
-                                response_data['models'].append(custom_model)
-                                self.custom_model_ids.add(model_id)
-                                custom_models_added.append(model_name)
+                            response_data['models'].append(custom_model)
+                            self.custom_model_ids.add(model_id)
+                            custom_models_added.append(model_name)
 
                         # 2. Inject dummy test models (debug mode only)
                         if DEBUG_MODE_ENABLED:

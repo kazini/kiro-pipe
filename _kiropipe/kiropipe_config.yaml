@@ -34,7 +34,7 @@ providers:
   
   # Anthropic Claude (direct API)
   anthropic:
-    enabled: true
+    enabled: false
     type: anthropic
     api_base: "https://api.anthropic.com/v1"
     api_key: null
@@ -42,13 +42,47 @@ providers:
     models:
       - name: "claude-haiku-4-5-20251001"
         display_name: "Claude 4.5 Haiku"
-        alias: ["claude", "haiku"]
-        description: "Claude 4.5 Haiku"
+        alias: ["claude-haiku"]
+        description: "Claude 4.5 Haiku - Fast and efficient"
+        max_tokens: 4096
+
+
+  openrouter:
+    enabled: true
+    type: openai
+    api_base: "https://openrouter.ai/api/v1"
+    api_key: null
+    description: "Anthropic Claude models"
+    models:
+      - name: "minimax/minimax-m2.5:free"
+        display_name: "MiniMax M2.5"
+        alias: ["minimax-m2.5"]
+        description: "via OpenRouter (free)"
+        max_tokens: 4096
+
+
+  # OpenAI (direct API, without LiteLLM)
+  openai:
+    enabled: false
+    type: openai
+    api_base: "https://api.openai.com/v1"
+    api_key: null
+    description: "OpenAI GPT models (direct)"
+    models:
+      - name: "gpt-4-turbo"
+        display_name: "GPT-4 Turbo"
+        alias: ["gpt4-turbo"]
+        description: "OpenAI GPT-4 Turbo"
+        max_tokens: 4096
+      - name: "gpt-4o"
+        display_name: "GPT-4o"
+        alias: ["gpt4o"]
+        description: "OpenAI GPT-4o"
         max_tokens: 4096
   
   # LiteLLM (universal interface)
   litellm:
-    enabled: true
+    enabled: false
     type: litellm
     description: "Universal LLM interface"
     
@@ -57,16 +91,20 @@ providers:
       api_key: null
       models:
         - name: "groq/llama-3.1-70b-versatile"
-          alias: ["groq"]
+          display_name: "Llama 3.1 70B (Groq)"
+          alias: ["groq", "llama-groq"]
+          description: "Llama 3.1 70B on Groq"
           max_tokens: 4096
     
-    # OpenAI / OpenRouter
+    # OpenAI / OpenRouter via LiteLLM
     openai:
       api_base: "https://api.openai.com/v1"  # Or "https://openrouter.ai/api/v1"
       api_key: null
       models:
         - name: "openai/gpt-4"
+          display_name: "GPT-4 (via LiteLLM)"
           alias: ["gpt4"]
+          description: "OpenAI GPT-4 via LiteLLM"
           max_tokens: 4096
     
     # Ollama (local)
@@ -75,7 +113,9 @@ providers:
       api_key: null
       models:
         - name: "ollama/llama3.2"
-          alias: ["llama"]
+          display_name: "Llama 3.2 (Local)"
+          alias: ["llama", "local"]
+          description: "Llama 3.2 running locally via Ollama"
           max_tokens: 4096
 
 # Default model
