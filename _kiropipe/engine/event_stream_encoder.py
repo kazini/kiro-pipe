@@ -97,7 +97,7 @@ def encode_text_chunk(text: str) -> bytes:
     return encode_event('assistantResponseEvent', {'content': text})
 
 
-def encode_tool_use_chunk(tool_name: str, tool_id: str, input_chunk: str) -> bytes:
+def encode_tool_use_chunk(tool_name: str, tool_id: str, input_chunk: str, is_final: bool = False) -> bytes:
     """
     Encode a tool use chunk as toolUseEvent
     
@@ -105,6 +105,7 @@ def encode_tool_use_chunk(tool_name: str, tool_id: str, input_chunk: str) -> byt
         tool_name: Tool name
         tool_id: Tool use ID
         input_chunk: Partial JSON input string
+        is_final: Whether this is the final chunk (adds 'stop': true)
     
     Returns:
         Encoded event bytes
@@ -114,6 +115,13 @@ def encode_tool_use_chunk(tool_name: str, tool_id: str, input_chunk: str) -> byt
         'toolUseId': tool_id,
         'input': input_chunk
     }
+    
+    # Add stop field for final chunk (when input is empty and is_final is True)
+    if is_final or (input_chunk == '' and is_final is None):
+        # If input is empty, this is likely a stop event
+        # AWS Q format uses 'stop': true for final tool event
+        payload['stop'] = True
+    
     return encode_event('toolUseEvent', payload)
 
 
