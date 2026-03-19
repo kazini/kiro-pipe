@@ -21,18 +21,21 @@ from engine.event_stream_encoder import (
 
 
 def translate_anthropic_stream(response_stream: Iterator[Dict[str, Any]], 
-                              include_usage: bool = True) -> Iterator[bytes]:
+                              include_usage: bool = True,
+                              usage_callback: Optional[callable] = None) -> Iterator[bytes]:
     """
     Translate Anthropic streaming response to AWS Event Stream format
     
     Args:
         response_stream: Iterator of Anthropic SSE events
         include_usage: Whether to include usage metrics
+        usage_callback: Optional callback function(input_tokens, output_tokens)
     
     Yields:
         AWS Event Stream binary chunks
     """
     tool_use_buffer = {}  # Buffer for accumulating tool use chunks
+    tool_use_index = {}  # Map index to tool ID
     total_input_tokens = 0
     total_output_tokens = 0
     
@@ -48,6 +51,8 @@ def translate_anthropic_stream(response_stream: Iterator[Dict[str, Any]],
         elif event_type == 'content_block_start':
             # Check if it's a tool use block
             content_block = event.get('content_block', {})
+            block_index = event.get('index', 0)
+            
             if content_block.get('type') == 'tool_use':
                 tool_id = content_block.get('id', '')
                 tool_name = content_block.get('name', '')
@@ -55,6 +60,7 @@ def translate_anthropic_stream(response_stream: Iterator[Dict[str, Any]],
                     'name': tool_name,
                     'input': ''
                 }
+                tool_use_index[block_index] = tool_id
         
         elif event_type == 'content_block_delta':
             delta = event.get('delta', {})
@@ -72,10 +78,8 @@ def translate_anthropic_stream(response_stream: Iterator[Dict[str, Any]],
                 partial_json = delta.get('partial_json', '')
                 
                 # Find the tool use ID for this index
-                # We need to track which tool use corresponds to which index
-                # For now, we'll use the first tool in buffer
-                if tool_use_buffer:
-                    tool_id = list(tool_use_buffer.keys())[0]
+                if index in tool_use_index:
+                    tool_id = tool_use_index[index]
                     tool_use_buffer[tool_id]['input'] += partial_json
                     
                     # Yield tool use chunk
@@ -86,16 +90,21 @@ def translate_anthropic_stream(response_stream: Iterator[Dict[str, Any]],
                     )
         
         elif event_type == 'content_block_stop':
-            # Tool use complete - send final empty chunk
-            if tool_use_buffer:
-                tool_id = list(tool_use_buffer.keys())[0]
-                yield encode_tool_use_chunk(
-                    tool_use_buffer[tool_id]['name'],
-                    tool_id,
-                    ''
-                )
-                # Clear the buffer
-                tool_use_buffer.pop(tool_id, None)
+            # Tool use complete - send final empty chunk with stop=True
+            block_index = event.get('index', 0)
+            
+            if block_index in tool_use_index:
+                tool_id = tool_use_index[block_index]
+                if tool_id in tool_use_buffer:
+                    yield encode_tool_use_chunk(
+                        tool_use_buffer[tool_id]['name'],
+                        tool_id,
+                        '',
+                        is_final=True  # Mark as final chunk
+                    )
+                    # Clear from buffers
+                    tool_use_buffer.pop(tool_id, None)
+                    tool_use_index.pop(block_index, None)
         
         elif event_type == 'message_delta':
             # Extract output tokens
@@ -106,6 +115,13 @@ def translate_anthropic_stream(response_stream: Iterator[Dict[str, Any]],
         elif event_type == 'message_stop':
             # End of message - send usage metrics
             if include_usage and (total_input_tokens or total_output_tokens):
+                # Call usage callback if provided
+                if usage_callback:
+                    try:
+                        usage_callback(total_input_tokens, total_output_tokens)
+                    except Exception as e:
+                        print(f"[Warning] Usage callback failed: {e}")
+                
                 # Calculate approximate credit usage (rough estimate)
                 # AWS Q seems to use ~0.2-0.3 credits per interaction
                 total_tokens = total_input_tokens + total_output_tokens
@@ -121,19 +137,22 @@ def translate_anthropic_stream(response_stream: Iterator[Dict[str, Any]],
 
 
 def translate_openai_stream(response_stream: Iterator[Dict[str, Any]], 
-                           include_usage: bool = True) -> Iterator[bytes]:
+                           include_usage: bool = True,
+                           usage_callback: Optional[callable] = None) -> Iterator[bytes]:
     """
     Translate OpenAI streaming response to AWS Event Stream format
     
     Args:
         response_stream: Iterator of OpenAI SSE events
         include_usage: Whether to include usage metrics
+        usage_callback: Optional callback function(input_tokens, output_tokens)
     
     Yields:
         AWS Event Stream binary chunks
     """
     tool_calls_buffer = {}  # Buffer for accumulating tool calls
-    total_tokens = 0
+    total_prompt_tokens = 0
+    total_completion_tokens = 0
     
     for chunk in response_stream:
         choices = chunk.get('choices', [])
@@ -181,25 +200,35 @@ def translate_openai_stream(response_stream: Iterator[Dict[str, Any]],
         # Check for finish
         finish_reason = choice.get('finish_reason')
         if finish_reason:
-            # Send final empty chunks for any tool calls
+            # Send final empty chunks for any tool calls with stop=True
             for tool_call in tool_calls_buffer.values():
                 yield encode_tool_use_chunk(
                     tool_call['name'],
                     tool_call['id'],
-                    ''
+                    '',
+                    is_final=True  # Mark as final chunk
                 )
             
             # Send usage if available
             if include_usage:
                 usage = chunk.get('usage', {})
                 if usage:
+                    total_prompt_tokens = usage.get('prompt_tokens', 0)
+                    total_completion_tokens = usage.get('completion_tokens', 0)
                     total_tokens = usage.get('total_tokens', 0)
+                    
+                    # Call usage callback if provided
+                    if usage_callback:
+                        try:
+                            usage_callback(total_prompt_tokens, total_completion_tokens)
+                        except Exception as e:
+                            print(f"[Warning] Usage callback failed: {e}")
+                    
                     credits = total_tokens / 10000
                     yield encode_metering(credits)
                     
-                    prompt_tokens = usage.get('prompt_tokens', 0)
-                    if prompt_tokens > 0:
-                        context_pct = (prompt_tokens / 200000) * 100
+                    if total_prompt_tokens > 0:
+                        context_pct = (total_prompt_tokens / 200000) * 100
                         yield encode_context_usage(context_pct)
 
 

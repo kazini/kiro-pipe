@@ -1,226 +1,367 @@
 #!/usr/bin/env python3
 """
-Test Anthropic → AWS Translation
-Tests the response translator with simulated Anthropic events
+Test Anthropic Translation
+Comprehensive tests for AWS Q ↔ Anthropic format translation
 """
 
 import sys
+import json
 from pathlib import Path
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from engine.request_translator import translate_to_anthropic, extract_tools, extract_tool_results
 from engine.response_translator import translate_anthropic_stream
 from engine.decode_event_stream import decode_event_stream
 
 
-def test_simple_text():
-    """Test simple text response translation"""
+def test_simple_message():
+    """Test 1: Simple user message (no history, no tools)"""
     print("\n" + "="*60)
-    print("Test 1: Simple Text Response")
+    print("Test 1: Simple User Message")
     print("="*60)
     
-    # Simulate Anthropic streaming events
+    aws_request = {
+        'conversationState': {
+            'conversationId': 'test-123',
+            'currentMessage': {
+                'userInputMessage': {
+                    'content': 'Hello, how are you?',
+                    'modelId': 'claude-3-5-sonnet-20241022',
+                    'origin': 'AI_EDITOR'
+                }
+            }
+        }
+    }
+    
+    anthropic_request = translate_to_anthropic(aws_request)
+    
+    print("\nAWS Q Request:")
+    print(json.dumps(aws_request, indent=2))
+    
+    print("\nAntropic Request:")
+    print(json.dumps(anthropic_request, indent=2))
+    
+    # Validate
+    assert anthropic_request['model'] == 'claude-3-5-sonnet-20241022'
+    assert len(anthropic_request['messages']) == 1
+    assert anthropic_request['messages'][0]['role'] == 'user'
+    assert anthropic_request['messages'][0]['content'] == 'Hello, how are you?'
+    assert anthropic_request['stream'] == True
+    assert 'tools' not in anthropic_request
+    
+    print("\n✓ Test passed!")
+
+
+def test_message_with_history():
+    """Test 2: User message with conversation history"""
+    print("\n" + "="*60)
+    print("Test 2: Message with History")
+    print("="*60)
+    
+    aws_request = {
+        'conversationState': {
+            'conversationId': 'test-123',
+            'currentMessage': {
+                'userInputMessage': {
+                    'content': 'What about Python?',
+                    'modelId': 'claude-3-5-sonnet-20241022',
+                    'origin': 'AI_EDITOR'
+                }
+            },
+            'history': [
+                {
+                    'userInputMessage': {
+                        'content': 'Tell me about JavaScript',
+                        'modelId': 'claude-3-5-sonnet-20241022',
+                        'origin': 'AI_EDITOR'
+                    }
+                },
+                {
+                    'assistantResponseMessage': {
+                        'content': 'JavaScript is a programming language...',
+                        'toolUses': []
+                    }
+                }
+            ]
+        }
+    }
+    
+    anthropic_request = translate_to_anthropic(aws_request)
+    
+    print("\nAntropic Request:")
+    print(json.dumps(anthropic_request, indent=2))
+    
+    # Validate
+    assert len(anthropic_request['messages']) == 3
+    assert anthropic_request['messages'][0]['role'] == 'user'
+    assert anthropic_request['messages'][0]['content'] == 'Tell me about JavaScript'
+    assert anthropic_request['messages'][1]['role'] == 'assistant'
+    assert anthropic_request['messages'][2]['role'] == 'user'
+    assert anthropic_request['messages'][2]['content'] == 'What about Python?'
+    
+    print("\n✓ Test passed!")
+
+
+def test_message_with_tools():
+    """Test 3: User message with tool definitions"""
+    print("\n" + "="*60)
+    print("Test 3: Message with Tools")
+    print("="*60)
+    
+    aws_request = {
+        'conversationState': {
+            'conversationId': 'test-123',
+            'currentMessage': {
+                'userInputMessage': {
+                    'content': 'Read the file test.py',
+                    'modelId': 'claude-3-5-sonnet-20241022',
+                    'origin': 'AI_EDITOR',
+                    'userInputMessageContext': {
+                        'tools': [
+                            {
+                                'toolSpecification': {
+                                    'name': 'readFile',
+                                    'description': 'Read a file from the filesystem',
+                                    'inputSchema': {
+                                        'json': {
+                                            'type': 'object',
+                                            'properties': {
+                                                'path': {
+                                                    'type': 'string',
+                                                    'description': 'Path to the file'
+                                                }
+                                            },
+                                            'required': ['path']
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+    }
+    
+    anthropic_request = translate_to_anthropic(aws_request)
+    
+    print("\nAntropic Request:")
+    print(json.dumps(anthropic_request, indent=2))
+    
+    # Validate
+    assert 'tools' in anthropic_request
+    assert len(anthropic_request['tools']) == 1
+    assert anthropic_request['tools'][0]['name'] == 'readFile'
+    assert 'input_schema' in anthropic_request['tools'][0]
+    
+    print("\n✓ Test passed!")
+
+
+def test_message_with_tool_results():
+    """Test 4: User message with tool results"""
+    print("\n" + "="*60)
+    print("Test 4: Message with Tool Results")
+    print("="*60)
+    
+    aws_request = {
+        'conversationState': {
+            'conversationId': 'test-123',
+            'currentMessage': {
+                'userInputMessage': {
+                    'content': '',
+                    'modelId': 'claude-3-5-sonnet-20241022',
+                    'origin': 'AI_EDITOR',
+                    'userInputMessageContext': {
+                        'toolResults': [
+                            {
+                                'toolUseId': 'tool_123',
+                                'status': 'success',
+                                'content': [
+                                    {
+                                        'text': 'File contents: Hello, world!'
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+    }
+    
+    anthropic_request = translate_to_anthropic(aws_request)
+    
+    print("\nAntropic Request:")
+    print(json.dumps(anthropic_request, indent=2))
+    
+    # Validate
+    assert len(anthropic_request['messages']) == 1
+    assert anthropic_request['messages'][0]['role'] == 'user'
+    assert isinstance(anthropic_request['messages'][0]['content'], list)
+    
+    content = anthropic_request['messages'][0]['content']
+    tool_result = next((c for c in content if c.get('type') == 'tool_result'), None)
+    assert tool_result is not None
+    assert tool_result['tool_use_id'] == 'tool_123'
+    assert 'File contents: Hello, world!' in tool_result['content']
+    
+    print("\n✓ Test passed!")
+
+
+def test_response_translation():
+    """Test 5: Anthropic response → AWS Event Stream"""
+    print("\n" + "="*60)
+    print("Test 5: Response Translation")
+    print("="*60)
+    
+    # Simulate Anthropic streaming response
     anthropic_events = [
         {'type': 'message_start', 'message': {'usage': {'input_tokens': 100}}},
-        {'type': 'content_block_start', 'content_block': {'type': 'text'}},
-        {'type': 'content_block_delta', 'delta': {'type': 'text_delta', 'text': 'Hello'}},
-        {'type': 'content_block_delta', 'delta': {'type': 'text_delta', 'text': ' from'}},
-        {'type': 'content_block_delta', 'delta': {'type': 'text_delta', 'text': ' Anthropic!'}},
-        {'type': 'content_block_stop'},
-        {'type': 'message_delta', 'usage': {'output_tokens': 50}},
+        {'type': 'content_block_start', 'index': 0, 'content_block': {'type': 'text'}},
+        {'type': 'content_block_delta', 'index': 0, 'delta': {'type': 'text_delta', 'text': 'Hello'}},
+        {'type': 'content_block_delta', 'index': 0, 'delta': {'type': 'text_delta', 'text': ' world'}},
+        {'type': 'content_block_delta', 'index': 0, 'delta': {'type': 'text_delta', 'text': '!'}},
+        {'type': 'content_block_stop', 'index': 0},
+        {'type': 'message_delta', 'delta': {}, 'usage': {'output_tokens': 50}},
         {'type': 'message_stop'}
     ]
     
-    # Translate to AWS format
-    aws_binary = b''.join(translate_anthropic_stream(iter(anthropic_events)))
+    # Track usage
+    usage_data = {}
     
-    print(f"✓ Generated {len(aws_binary)} bytes of AWS Event Stream data")
+    def usage_callback(input_tokens, output_tokens):
+        usage_data['input'] = input_tokens
+        usage_data['output'] = output_tokens
     
-    # Decode and verify
-    events = decode_event_stream(aws_binary)
-    print(f"✓ Decoded {len(events)} events")
+    # Translate to AWS Event Stream
+    aws_stream = b''.join(translate_anthropic_stream(
+        iter(anthropic_events),
+        usage_callback=usage_callback
+    ))
     
-    # Extract text
-    text_content = ""
-    for event in events:
+    print(f"\nGenerated {len(aws_stream)} bytes of AWS Event Stream")
+    print(f"First 100 bytes (hex): {aws_stream[:100].hex()}")
+    
+    # Decode and validate
+    events = decode_event_stream(aws_stream)
+    print(f"\nDecoded {len(events)} events:")
+    
+    text_content = []
+    for i, event in enumerate(events, 1):
         event_type = event['headers'].get(':event-type')
-        payload = event['payload']
+        print(f"  {i}. {event_type}")
         
         if event_type == 'assistantResponseEvent':
-            if isinstance(payload, dict) and 'content' in payload:
-                text_content += payload['content']
-        
-        print(f"  - {event_type}: {payload}")
+            content = event['payload'].get('content', '')
+            if content:
+                text_content.append(content)
     
-    print(f"\n✓ Reconstructed text: '{text_content}'")
+    # Validate
+    full_text = ''.join(text_content)
+    assert full_text == 'Hello world!', f"Expected 'Hello world!', got '{full_text}'"
+    assert usage_data['input'] == 100
+    assert usage_data['output'] == 50
     
-    expected = "Hello from Anthropic!"
-    if text_content == expected:
-        print(f"✓ Text matches expected output!")
-        return True
-    else:
-        print(f"✗ Text mismatch!")
-        print(f"  Expected: '{expected}'")
-        print(f"  Got: '{text_content}'")
-        return False
+    print(f"\nReconstructed text: '{full_text}'")
+    print(f"Usage: {usage_data['input']} input, {usage_data['output']} output tokens")
+    
+    print("\n✓ Test passed!")
 
 
-def test_tool_use():
-    """Test tool use response translation"""
+def test_tool_use_response():
+    """Test 6: Tool use response translation"""
     print("\n" + "="*60)
-    print("Test 2: Tool Use Response")
+    print("Test 6: Tool Use Response")
     print("="*60)
     
-    # Simulate Anthropic tool use events
+    # Simulate Anthropic tool use response
     anthropic_events = [
         {'type': 'message_start', 'message': {'usage': {'input_tokens': 150}}},
-        {'type': 'content_block_start', 'content_block': {'type': 'tool_use', 'id': 'tool_abc123', 'name': 'readFile'}},
+        {'type': 'content_block_start', 'index': 0, 'content_block': {'type': 'tool_use', 'id': 'tool_123', 'name': 'readFile'}},
         {'type': 'content_block_delta', 'index': 0, 'delta': {'type': 'input_json_delta', 'partial_json': '{"path"'}},
         {'type': 'content_block_delta', 'index': 0, 'delta': {'type': 'input_json_delta', 'partial_json': ': "test.py"}'}},
-        {'type': 'content_block_stop'},
-        {'type': 'message_delta', 'usage': {'output_tokens': 30}},
+        {'type': 'content_block_stop', 'index': 0},
+        {'type': 'message_delta', 'delta': {}, 'usage': {'output_tokens': 30}},
         {'type': 'message_stop'}
     ]
     
-    # Translate to AWS format
-    aws_binary = b''.join(translate_anthropic_stream(iter(anthropic_events)))
+    # Translate to AWS Event Stream
+    aws_stream = b''.join(translate_anthropic_stream(iter(anthropic_events)))
     
-    print(f"✓ Generated {len(aws_binary)} bytes of AWS Event Stream data")
+    print(f"\nGenerated {len(aws_stream)} bytes of AWS Event Stream")
     
-    # Decode and verify
-    events = decode_event_stream(aws_binary)
-    print(f"✓ Decoded {len(events)} events")
+    # Decode and validate
+    events = decode_event_stream(aws_stream)
+    print(f"\nDecoded {len(events)} events:")
     
-    # Extract tool calls
-    tool_calls = {}
-    for event in events:
+    tool_events = []
+    for i, event in enumerate(events, 1):
         event_type = event['headers'].get(':event-type')
-        payload = event['payload']
+        print(f"  {i}. {event_type}")
         
         if event_type == 'toolUseEvent':
-            if isinstance(payload, dict):
-                tool_id = payload.get('toolUseId', '')
-                tool_name = payload.get('name', '')
-                input_chunk = payload.get('input', '')
-                
-                if tool_id not in tool_calls:
-                    tool_calls[tool_id] = {'name': tool_name, 'input': ''}
-                
-                if input_chunk:
-                    tool_calls[tool_id]['input'] += input_chunk
-        
-        print(f"  - {event_type}: {payload}")
+            tool_events.append(event['payload'])
     
-    print(f"\n✓ Tool calls: {tool_calls}")
+    # Validate
+    assert len(tool_events) > 0, "No tool use events found"
     
-    if 'tool_abc123' in tool_calls:
-        tool = tool_calls['tool_abc123']
-        if tool['name'] == 'readFile' and '{"path": "test.py"}' in tool['input']:
-            print(f"✓ Tool call matches expected output!")
-            return True
+    # Reconstruct tool input
+    tool_input = ''.join(e.get('input', '') for e in tool_events)
+    print(f"\nTool: {tool_events[0].get('name')}")
+    print(f"Tool ID: {tool_events[0].get('toolUseId')}")
+    print(f"Input: {tool_input}")
     
-    print(f"✗ Tool call mismatch!")
-    return False
+    assert tool_events[0]['name'] == 'readFile'
+    assert tool_events[0]['toolUseId'] == 'tool_123'
+    assert '{"path": "test.py"}' in tool_input
+    
+    print("\n✓ Test passed!")
 
 
-def test_mixed_content():
-    """Test mixed text and tool use"""
+def run_all_tests():
+    """Run all translation tests"""
     print("\n" + "="*60)
-    print("Test 3: Mixed Text and Tool Use")
+    print("Anthropic Translation Tests")
     print("="*60)
     
-    # Simulate mixed content
-    anthropic_events = [
-        {'type': 'message_start', 'message': {'usage': {'input_tokens': 200}}},
-        {'type': 'content_block_start', 'content_block': {'type': 'text'}},
-        {'type': 'content_block_delta', 'delta': {'type': 'text_delta', 'text': 'Let me read that file for you.'}},
-        {'type': 'content_block_stop'},
-        {'type': 'content_block_start', 'content_block': {'type': 'tool_use', 'id': 'tool_xyz789', 'name': 'readFile'}},
-        {'type': 'content_block_delta', 'index': 1, 'delta': {'type': 'input_json_delta', 'partial_json': '{"path": "data.json"}'}},
-        {'type': 'content_block_stop'},
-        {'type': 'message_delta', 'usage': {'output_tokens': 80}},
-        {'type': 'message_stop'}
+    tests = [
+        test_simple_message,
+        test_message_with_history,
+        test_message_with_tools,
+        test_message_with_tool_results,
+        test_response_translation,
+        test_tool_use_response
     ]
     
-    # Translate to AWS format
-    aws_binary = b''.join(translate_anthropic_stream(iter(anthropic_events)))
+    passed = 0
+    failed = 0
     
-    print(f"✓ Generated {len(aws_binary)} bytes of AWS Event Stream data")
+    for test in tests:
+        try:
+            test()
+            passed += 1
+        except AssertionError as e:
+            print(f"\n✗ Test failed: {e}")
+            failed += 1
+        except Exception as e:
+            print(f"\n✗ Test error: {e}")
+            import traceback
+            traceback.print_exc()
+            failed += 1
     
-    # Decode and verify
-    events = decode_event_stream(aws_binary)
-    print(f"✓ Decoded {len(events)} events")
+    print("\n" + "="*60)
+    print(f"Results: {passed} passed, {failed} failed")
+    print("="*60)
     
-    text_content = ""
-    tool_calls = {}
-    
-    for event in events:
-        event_type = event['headers'].get(':event-type')
-        payload = event['payload']
-        
-        if event_type == 'assistantResponseEvent':
-            if isinstance(payload, dict) and 'content' in payload:
-                text_content += payload['content']
-        
-        elif event_type == 'toolUseEvent':
-            if isinstance(payload, dict):
-                tool_id = payload.get('toolUseId', '')
-                tool_name = payload.get('name', '')
-                input_chunk = payload.get('input', '')
-                
-                if tool_id not in tool_calls:
-                    tool_calls[tool_id] = {'name': tool_name, 'input': ''}
-                
-                if input_chunk:
-                    tool_calls[tool_id]['input'] += input_chunk
-        
-        print(f"  - {event_type}: {payload}")
-    
-    print(f"\n✓ Text: '{text_content}'")
-    print(f"✓ Tool calls: {tool_calls}")
-    
-    has_text = "Let me read that file for you." in text_content
-    has_tool = 'tool_xyz789' in tool_calls
-    
-    if has_text and has_tool:
-        print(f"✓ Mixed content matches expected output!")
-        return True
+    if failed == 0:
+        print("\n✓ All tests passed!")
+        return 0
     else:
-        print(f"✗ Mixed content mismatch!")
-        return False
-
-
-def main():
-    """Run all tests"""
-    print("\n" + "="*60)
-    print("Anthropic → AWS Translation Tests")
-    print("="*60)
-    
-    results = []
-    
-    # Run tests
-    results.append(("Simple Text", test_simple_text()))
-    results.append(("Tool Use", test_tool_use()))
-    results.append(("Mixed Content", test_mixed_content()))
-    
-    # Summary
-    print("\n" + "="*60)
-    print("Test Summary")
-    print("="*60)
-    
-    passed = sum(1 for _, result in results if result)
-    total = len(results)
-    
-    for name, result in results:
-        status = "✓ PASS" if result else "✗ FAIL"
-        print(f"{status}: {name}")
-    
-    print(f"\n{passed}/{total} tests passed")
-    print("="*60 + "\n")
-    
-    return 0 if passed == total else 1
+        print(f"\n✗ {failed} test(s) failed")
+        return 1
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    sys.exit(run_all_tests())

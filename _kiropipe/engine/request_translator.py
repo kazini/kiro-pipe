@@ -254,10 +254,28 @@ def translate_to_openai(aws_request: Dict[str, Any], model: str = 'gpt-4',
             tool_call_id = result.get('toolUseId', '')
             status = result.get('status', 'success')
             
-            if status == 'success':
-                content = result.get('content', '')
+            # Extract content - AWS Q format has content as array of objects
+            result_content = result.get('content', [])
+            
+            # Convert to string
+            if isinstance(result_content, list):
+                # Extract text from content array
+                text_parts = []
+                for item in result_content:
+                    if isinstance(item, dict) and 'text' in item:
+                        text_parts.append(item['text'])
+                    elif isinstance(item, str):
+                        text_parts.append(item)
+                content = '\n'.join(text_parts) if text_parts else ''
+            elif isinstance(result_content, str):
+                content = result_content
             else:
-                content = result.get('error', 'Tool execution failed')
+                content = str(result_content)
+            
+            # Handle errors
+            if status != 'success':
+                error_msg = result.get('error', 'Tool execution failed')
+                content = f"Error: {error_msg}"
             
             messages.append({
                 'role': 'tool',
