@@ -164,19 +164,24 @@ def translate_to_anthropic(aws_request: Dict[str, Any], model: str = 'claude-3-5
             hist_tool_results = context.get('toolResults', [])
 
             if hist_tool_results:
-                # Completed tool round-trip — the preceding item must be the
-                # assistant message that issued the tool call(s).
-                if i > 0 and 'assistantResponseMessage' in aws_history[i - 1]:
+                # Completed tool round-trip — if there is a preceding assistant message
+                # with toolUse, use it. Otherwise (Kiro-injected tools: fileTree, MCP
+                # rules, etc.) synthesize the tool_use blocks from the result entries.
+                if (
+                    i > 0
+                    and 'assistantResponseMessage' in aws_history[i - 1]
+                    and aws_history[i - 1]['assistantResponseMessage'].get('toolUse')
+                ):
                     prev_assistant = aws_history[i - 1]['assistantResponseMessage']
                     tool_uses = prev_assistant.get('toolUse', [])
-                    if tool_uses:
-                        asst_content = []
-                        if prev_assistant.get('content'):
-                            asst_content.append({'type': 'text', 'text': prev_assistant['content']})
-                        asst_content.extend([_aws_tool_use_to_anthropic_block(tu) for tu in tool_uses])
-                        messages.append({'role': 'assistant', 'content': asst_content})
+                    asst_prefix = [{'type': 'text', 'text': prev_assistant['content']}] if prev_assistant.get('content') else []
+                else:
+                    # Synthesize tool_use entries from the results themselves
+                    tool_uses = [_tool_use_from_result(r) for r in hist_tool_results]
+                    asst_prefix = []
 
-                # Tool results go into a user message as tool_result blocks.
+                asst_content = asst_prefix + [_aws_tool_use_to_anthropic_block(tu) for tu in tool_uses]
+                messages.append({'role': 'assistant', 'content': asst_content})
                 result_blocks = [_tool_result_to_anthropic_block(r) for r in hist_tool_results]
                 user_content: List[Any] = result_blocks
                 if text_content:
@@ -300,6 +305,33 @@ def _tool_result_to_message(result: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _tool_use_from_result(result: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Synthesize a minimal AWS-Q-style toolUse dict from a toolResult entry.
+
+    Used when Kiro injects tool results into the conversation automatically
+    (e.g. fileTree scans, MCP tool calls triggered by rules) without a
+    preceding assistantResponseMessage.  Both APIs require every tool result
+    to be paired with an assistant tool-call, so we reconstruct one here.
+
+    Tool name is derived from the toolUseId dynamically:
+      - 'tooluse_fileTree'  →  'fileTree'
+      - 'tooluse_readFile'  →  'readFile'
+      - 'abc-123'           →  'abc-123'   (no prefix — use as-is)
+
+    Input is left as an empty dict because Kiro called the tool automatically;
+    we have no record of the arguments it used.
+    """
+    tool_id = result.get('toolUseId', '')
+    # Strip 'tooluse_' prefix if present; otherwise use the full ID as the name
+    name = tool_id[len('tooluse_'):] if tool_id.startswith('tooluse_') else tool_id
+    return {
+        'toolUseId': tool_id,
+        'name':      name,
+        'input':     {},
+    }
+
+
 def _aws_tool_use_to_openai_call(tool_use: Dict[str, Any]) -> Dict[str, Any]:
     """
     Convert an AWS Q toolUse entry to an OpenAI tool_calls element.
@@ -412,22 +444,27 @@ def translate_to_openai(aws_request: Dict[str, Any], model: str = 'gpt-4',
 
             if hist_tool_results:
                 # This is a completed tool-result turn in history.
-                # The PRECEDING history item should be the assistant message that called the tool.
-                if i > 0 and 'assistantResponseMessage' in aws_history[i - 1]:
-                    prev_assistant = aws_history[i - 1]['assistantResponseMessage']
-                    tool_uses = prev_assistant.get('toolUse', [])
-                    if tool_uses:
-                        tool_calls = [_aws_tool_use_to_openai_call(tu) for tu in tool_uses]
-                        messages.append({
-                            'role': 'assistant',
-                            'content': None,
-                            'tool_calls': tool_calls,
-                        })
+                # If there is a preceding assistantResponseMessage with toolUse, use it.
+                # Otherwise (Kiro-injected tools: fileTree, MCP rules, etc.) synthesize
+                # the assistant tool_calls from the result entries so the exchange is
+                # structurally valid — every tool result must follow a matching tool call.
+                if (
+                    i > 0
+                    and 'assistantResponseMessage' in aws_history[i - 1]
+                    and aws_history[i - 1]['assistantResponseMessage'].get('toolUse')
+                ):
+                    tool_uses = aws_history[i - 1]['assistantResponseMessage']['toolUse']
+                else:
+                    # Synthesize tool_use entries from the results themselves
+                    tool_uses = [_tool_use_from_result(r) for r in hist_tool_results]
 
+                messages.append({
+                    'role': 'assistant',
+                    'content': None,
+                    'tool_calls': [_aws_tool_use_to_openai_call(tu) for tu in tool_uses],
+                })
                 for result in hist_tool_results:
                     messages.append(_tool_result_to_message(result))
-
-                # Any free-text that accompanied the tool results
                 if text_content:
                     messages.append({'role': 'user', 'content': text_content})
             elif text_content:
