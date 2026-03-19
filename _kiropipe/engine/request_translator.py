@@ -535,10 +535,11 @@ def translate_to_openai(aws_request: Dict[str, Any], model: str = 'gpt-4',
     # Build final request                                                  #
     # ------------------------------------------------------------------ #
     openai_request: Dict[str, Any] = {
-        'model':      model,
-        'max_tokens': max_tokens,
-        'messages':   messages,
-        'stream':     True,
+        'model':          model,
+        'max_tokens':     max_tokens,
+        'messages':       messages,
+        'stream':         True,
+        'stream_options': {'include_usage': True},  # request token counts in stream
     }
 
     if tools:

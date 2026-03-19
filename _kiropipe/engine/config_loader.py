@@ -27,11 +27,21 @@ DEFAULT_CONFIG = {
         'exe_path': None
     },
     'kiro_endpoint': {
-        'telemetry': False,  # FALSE = block
-        'updates': False,    # FALSE = block
-        'models': True,      # TRUE = allow
-        'force_toggle_usage_limits': None
+        'telemetry': False,               # FALSE = block telemetry when on passthrough models
+        'updates': False,                 # FALSE = block
+        'models': True,                   # TRUE = allow Kiro passthrough models
+        'force_toggle_usage_limits': None,
+        'auth_fake_login': False,         # Intercept /oauth/token + /logout
+        'start_blocking': False,          # Start with block_aws_traffic=True
+        'block_telemetry_always': False,  # Block /v1/metrics+/v1/traces even on passthrough
+        'strict_whitelist': False         # Block unhandled amazonaws/kiro.dev paths
     },
+    # completions: flat value
+    # None/'null'   → block when custom model active, passthrough for Kiro (default)
+    # 'passthrough' → always forward to AWS
+    # 'current'     → use last active custom model's provider
+    # '<model_name>'→ always use that specific configured model
+    'completions': None,
     'debug': {
         'debug_mode_enabled': False,
         'store_interaction_blocks': False
@@ -50,7 +60,7 @@ DEFAULT_CONFIG = {
             ]
         }
     },
-    'default_model': 'kiro-default'
+    'default_model': 'kiro-default',
 }
 
 
@@ -329,6 +339,7 @@ class Config:
                     'aliases': model.get('alias', []),
                     'description': model.get('description', ''),
                     'max_tokens': model.get('max_tokens', 4096),
+                    'context_window': model.get('context_window', 200000),
                     'sub_provider': None
                 })
             
@@ -351,6 +362,7 @@ class Config:
                             'aliases': model.get('alias', []),
                             'description': model.get('description', f'{sub_provider_name} model'),
                             'max_tokens': model.get('max_tokens', 4096),
+                            'context_window': model.get('context_window', 200000),
                             'sub_provider': sub_provider_name
                         })
         

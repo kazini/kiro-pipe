@@ -23,18 +23,17 @@ from engine.event_stream_encoder import (
 def translate_anthropic_stream(response_stream: Iterator[Dict[str, Any]],
                                include_usage: bool = True,
                                usage_callback: Optional[callable] = None,
-                               tool_calls_out: Optional[Dict[str, Any]] = None) -> Iterator[bytes]:
+                               tool_calls_out: Optional[Dict[str, Any]] = None,
+                               context_window: int = 200000) -> Iterator[bytes]:
     """
     Translate Anthropic streaming response to AWS Event Stream format.
 
     Args:
         response_stream:  Iterator of Anthropic SSE events
-        include_usage:    Whether to include usage metrics
+        include_usage:    Whether to include metering (credits) events
         usage_callback:   Optional callback function(input_tokens, output_tokens)
-        tool_calls_out:   Optional dict populated with {toolUseId: {name, input}} for every
-                          tool call streamed out.  The caller (KiroInterceptor) stores this
-                          so it can reconstruct the assistant tool-use message on the next
-                          round-trip.
+        tool_calls_out:   Optional dict populated with {toolUseId: {name, input}}
+        context_window:   Model's max context in tokens (for contextUsage % calculation)
 
     Yields:
         AWS Event Stream binary chunks
@@ -132,33 +131,30 @@ def translate_anthropic_stream(response_stream: Iterator[Dict[str, Any]],
                 has_usage_data = True
         
         elif event_type == 'message_stop':
-            # End of message - send usage metrics only if we have data
-            if include_usage and has_usage_data and (total_input_tokens or total_output_tokens):
-                # Call usage callback if provided
+            # Always fire usage callback if we have token counts
+            if has_usage_data and (total_input_tokens or total_output_tokens):
                 if usage_callback:
                     try:
                         usage_callback(total_input_tokens, total_output_tokens)
                     except Exception as e:
                         print(f"[Warning] Usage callback failed: {e}")
-                
-                # Calculate approximate credit usage (rough estimate)
-                # AWS Q seems to use ~0.2-0.3 credits per interaction
-                total_tokens = total_input_tokens + total_output_tokens
-                credits = total_tokens / 10000  # Rough approximation
-                
-                yield encode_metering(credits)
-                
-                # Context usage (estimate based on input tokens)
+
+                # include_usage=True  → emit metering (credits) + contextUsage
+                # include_usage=False → emit contextUsage only (drives 'Elapsed time:')
+                if include_usage:
+                    total_tokens = total_input_tokens + total_output_tokens
+                    yield encode_metering(total_tokens / 10000)
+
                 if total_input_tokens > 0:
-                    # Assume 200k context window
-                    context_pct = (total_input_tokens / 200000) * 100
+                    context_pct = (total_input_tokens / context_window) * 100
                     yield encode_context_usage(context_pct)
 
 
 def translate_openai_stream(response_stream: Iterator[Dict[str, Any]],
                            include_usage: bool = True,
                            usage_callback: Optional[callable] = None,
-                           tool_calls_out: Optional[Dict[str, Any]] = None) -> Iterator[bytes]:
+                           tool_calls_out: Optional[Dict[str, Any]] = None,
+                           context_window: int = 200000) -> Iterator[bytes]:
     """
     Translate OpenAI streaming response to AWS Event Stream format
 
@@ -180,6 +176,26 @@ def translate_openai_stream(response_stream: Iterator[Dict[str, Any]],
     has_usage_data = False  # Track if we got usage data
     
     for chunk in response_stream:
+        # Usage-only chunk (stream_options include_usage=true) has choices:[]
+        # Must extract usage BEFORE the choices guard.
+        _usage_chunk = chunk.get('usage') or {}
+        if _usage_chunk and not chunk.get('choices'):
+            total_prompt_tokens = _usage_chunk.get('prompt_tokens', 0)
+            total_completion_tokens = _usage_chunk.get('completion_tokens', 0)
+            total_tokens = _usage_chunk.get('total_tokens', 0)
+            has_usage_data = True
+            if usage_callback:
+                try:
+                    usage_callback(total_prompt_tokens, total_completion_tokens)
+                except Exception as e:
+                    print(f'[Warning] Usage callback failed: {e}')
+            if include_usage:
+                yield encode_metering(total_tokens / 10000)
+            if total_prompt_tokens > 0:
+                context_pct = (total_prompt_tokens / context_window) * 100
+                yield encode_context_usage(context_pct)
+            continue
+
         choices = chunk.get('choices', [])
         if not choices:
             continue
@@ -246,29 +262,28 @@ def translate_openai_stream(response_stream: Iterator[Dict[str, Any]],
                         'arguments': tool_call['arguments'],
                     }
             
-            # Check for usage in the chunk
-            if include_usage:
-                usage = chunk.get('usage', {})
-                if usage:
-                    total_prompt_tokens = usage.get('prompt_tokens', 0)
-                    total_completion_tokens = usage.get('completion_tokens', 0)
-                    total_tokens = usage.get('total_tokens', 0)
-                    has_usage_data = True
-                    
-                    # Call usage callback if provided
-                    if usage_callback:
-                        try:
-                            usage_callback(total_prompt_tokens, total_completion_tokens)
-                        except Exception as e:
-                            print(f"[Warning] Usage callback failed: {e}")
-                    
-                    # Only send metering if we have actual usage data
-                    credits = total_tokens / 10000
-                    yield encode_metering(credits)
-                    
-                    if total_prompt_tokens > 0:
-                        context_pct = (total_prompt_tokens / 200000) * 100
-                        yield encode_context_usage(context_pct)
+            # Collect usage regardless of include_usage (needed for contextUsage)
+            usage = chunk.get('usage', {})
+            if usage:
+                total_prompt_tokens = usage.get('prompt_tokens', 0)
+                total_completion_tokens = usage.get('completion_tokens', 0)
+                total_tokens = usage.get('total_tokens', 0)
+                has_usage_data = True
+
+                if usage_callback:
+                    try:
+                        usage_callback(total_prompt_tokens, total_completion_tokens)
+                    except Exception as e:
+                        print(f"[Warning] Usage callback failed: {e}")
+
+                # include_usage=True  → emit metering + contextUsage
+                # include_usage=False → emit contextUsage only ('Elapsed time:')
+                if include_usage:
+                    yield encode_metering(total_tokens / 10000)
+
+                if total_prompt_tokens > 0:
+                    context_pct = (total_prompt_tokens / context_window) * 100
+                    yield encode_context_usage(context_pct)
     
     # If we finished without usage data, don't send metering events
     # This prevents showing "Credits used" when the provider doesn't report usage
