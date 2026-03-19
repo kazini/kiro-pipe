@@ -3,3 +3,4 @@ This is its second line!!
 
 This is the fourth, the third was a line jump.
 And now we're on the fifth line, completing the sequence.
+And now we're on the sixth line, continuing the sequence.

@@ -159,6 +159,7 @@ from mitmproxy import http
 from mitmproxy.tools.main import mitmdump
 import json
 import threading
+from typing import Dict, Any
 
 """
 KiroPipe || Proxies Kiro and enables custom API use.
@@ -242,6 +243,7 @@ class KiroInterceptor:
         self.simple_task_lock = threading.Lock()  # Lock for simple-task handling
         self.last_real_model = None  # Track last non-simple-task model
         self.block_aws_traffic = False  # Block all AWS traffic when using custom models
+        self.tool_call_cache: Dict[str, Any] = {}  # toolUseId -> {name, arguments}; persists across requests
     
     def __del__(self):
         """Cleanup and print usage summary on shutdown"""
@@ -707,7 +709,8 @@ class KiroInterceptor:
                             openai_request = translate_to_openai(
                                 aws_body,
                                 model=self.current_model,
-                                max_tokens=4096
+                                max_tokens=4096,
+                                tool_call_cache=self.tool_call_cache
                             )
                             
                             if DEBUG_MODE_ENABLED:
@@ -799,11 +802,16 @@ class KiroInterceptor:
                                     
                                     # Translate OpenAI events to AWS event stream with usage tracking
                                     # NOTE: Don't include usage/metering for custom models to avoid showing "Credits used"
+                                    tool_calls_out: Dict[str, Any] = {}
                                     aws_binary = b''.join(translate_openai_stream(
                                         openai_event_generator(),
                                         include_usage=False,  # Don't send metering events for custom models
-                                        usage_callback=usage_callback
+                                        usage_callback=usage_callback,
+                                        tool_calls_out=tool_calls_out
                                     ))
+                                    # Cache any tool calls that were streamed out so we can
+                                    # reconstruct the assistant message on the next round-trip.
+                                    self.tool_call_cache.update(tool_calls_out)
                                     
                                     if DEBUG_MODE_ENABLED:
                                         print(f"{Fore.GREEN} [OPENAI]{Style.RESET_ALL} Translated to AWS format: {Fore.YELLOW}{len(aws_binary)} bytes{Style.RESET_ALL}")
@@ -833,7 +841,8 @@ class KiroInterceptor:
                             openai_request = translate_to_openai(
                                 aws_body,
                                 model=self.current_model,
-                                max_tokens=4096
+                                max_tokens=4096,
+                                tool_call_cache=self.tool_call_cache
                             )
                             
                             if DEBUG_MODE_ENABLED:
@@ -888,11 +897,15 @@ class KiroInterceptor:
                             
                             # Translate to AWS event stream with usage tracking
                             # NOTE: Don't include usage/metering for custom models to avoid showing "Credits used"
+                            tool_calls_out: Dict[str, Any] = {}
                             aws_binary = b''.join(translate_openai_stream(
                                 litellm_event_generator(),
                                 include_usage=False,  # Don't send metering events for custom models
-                                usage_callback=usage_callback
+                                usage_callback=usage_callback,
+                                tool_calls_out=tool_calls_out
                             ))
+                            # Cache any tool calls streamed out for the next round-trip.
+                            self.tool_call_cache.update(tool_calls_out)
                             
                             if DEBUG_MODE_ENABLED:
                                 print(f"{Fore.GREEN} [LITELLM]{Style.RESET_ALL} Translated to AWS format: {Fore.YELLOW}{len(aws_binary)} bytes{Style.RESET_ALL}")
