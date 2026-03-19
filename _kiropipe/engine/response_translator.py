@@ -141,17 +141,22 @@ def translate_anthropic_stream(response_stream: Iterator[Dict[str, Any]],
                     yield encode_context_usage(context_pct)
 
 
-def translate_openai_stream(response_stream: Iterator[Dict[str, Any]], 
+def translate_openai_stream(response_stream: Iterator[Dict[str, Any]],
                            include_usage: bool = True,
-                           usage_callback: Optional[callable] = None) -> Iterator[bytes]:
+                           usage_callback: Optional[callable] = None,
+                           tool_calls_out: Optional[Dict[str, Any]] = None) -> Iterator[bytes]:
     """
     Translate OpenAI streaming response to AWS Event Stream format
-    
+
     Args:
-        response_stream: Iterator of OpenAI SSE events
-        include_usage: Whether to include usage metrics
-        usage_callback: Optional callback function(input_tokens, output_tokens)
-    
+        response_stream:  Iterator of OpenAI SSE events
+        include_usage:    Whether to include usage metrics
+        usage_callback:   Optional callback function(input_tokens, output_tokens)
+        tool_calls_out:   Optional dict populated with {toolUseId: {name, arguments}}
+                          for every tool call streamed out.  The caller (KiroInterceptor)
+                          stores this so it can reconstruct the assistant tool-call
+                          message on the next round-trip.
+
     Yields:
         AWS Event Stream binary chunks
     """
@@ -214,6 +219,17 @@ def translate_openai_stream(response_stream: Iterator[Dict[str, Any]],
                     '',
                     is_final=True  # Mark as final chunk
                 )
+
+            # Populate tool_calls_out so the interceptor can cache name+arguments
+            # keyed by toolUseId, enabling reconstruction of the assistant message
+            # on the next request when Kiro sends back tool results.
+            if tool_calls_out is not None:
+                for tool_call in tool_calls_buffer.values():
+                    tool_id = tool_call['id']
+                    tool_calls_out[tool_id] = {
+                        'name':      tool_call['name'],
+                        'arguments': tool_call['arguments'],
+                    }
             
             # Check for usage in the chunk
             if include_usage:
