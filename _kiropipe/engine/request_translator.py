@@ -35,9 +35,15 @@ def extract_conversation_history(aws_request: Dict[str, Any]) -> List[Dict[str, 
                         'content': content
                     })
             
-            # Assistant messages
+            # Assistant messages - DON'T include them here if they have tool use
+            # They will be added separately when processing tool results
             elif 'assistantResponseMessage' in item:
                 assistant_msg = item['assistantResponseMessage']
+                
+                # Skip assistant messages with tool use - they'll be added when processing tool results
+                if 'toolUse' in assistant_msg and assistant_msg['toolUse']:
+                    continue
+                
                 content = assistant_msg.get('content', '')
                 
                 if content:
@@ -200,7 +206,56 @@ def translate_to_anthropic(aws_request: Dict[str, Any], model: str = 'claude-3-5
     # Build messages from history + current message
     messages = history.copy() if history else []
     
-    # Add current message
+    # Handle tool results - need to add assistant message with tool use from history
+    if tool_results:
+        # Extract the last assistant message from AWS history which should have tool use
+        conv_state = aws_request.get('conversationState', {})
+        aws_history = conv_state.get('history', [])
+        
+        # Find the last assistant message with tool use
+        last_assistant_with_tools = None
+        for item in reversed(aws_history):
+            if 'assistantResponseMessage' in item:
+                assistant_msg = item['assistantResponseMessage']
+                if 'toolUse' in assistant_msg and assistant_msg['toolUse']:
+                    last_assistant_with_tools = assistant_msg
+                    break
+        
+        # Add assistant message with tool use
+        if last_assistant_with_tools:
+            content_blocks = []
+            
+            # Add text content if present
+            text_content = last_assistant_with_tools.get('content', '')
+            if text_content:
+                content_blocks.append({
+                    'type': 'text',
+                    'text': text_content
+                })
+            
+            # Add tool use blocks
+            tool_uses = last_assistant_with_tools.get('toolUse', [])
+            for tool_use in tool_uses:
+                # Parse input JSON string to dict
+                input_str = tool_use.get('input', '{}')
+                try:
+                    input_dict = json.loads(input_str) if isinstance(input_str, str) else input_str
+                except:
+                    input_dict = {}
+                
+                content_blocks.append({
+                    'type': 'tool_use',
+                    'id': tool_use.get('toolUseId', ''),
+                    'name': tool_use.get('name', ''),
+                    'input': input_dict
+                })
+            
+            messages.append({
+                'role': 'assistant',
+                'content': content_blocks
+            })
+    
+    # Add current message with tool results
     current_messages = build_anthropic_messages(user_message, tool_results)
     messages.extend(current_messages)
     
@@ -233,21 +288,60 @@ def translate_to_openai(aws_request: Dict[str, Any], model: str = 'gpt-4',
         OpenAI Chat Completions API request body
     """
     # Extract components
+    history = extract_conversation_history(aws_request)
     user_message = extract_user_message(aws_request)
     tools = extract_tools(aws_request)
     tool_results = extract_tool_results(aws_request)
     
-    # Build messages
+    # Build messages from history
     messages = []
     
+    # Add conversation history first
+    if history:
+        for msg in history:
+            messages.append(msg)
+    
+    # Handle tool results - need to add assistant message with tool calls from history
     if tool_results:
-        # Add user message with tool results
-        # OpenAI format is different - tool results are separate messages
-        if user_message:
-            messages.append({
-                'role': 'user',
-                'content': user_message
-            })
+        # Extract the last assistant message from AWS history which should have tool use
+        conv_state = aws_request.get('conversationState', {})
+        aws_history = conv_state.get('history', [])
+        
+        # Find the last assistant message with tool use
+        last_assistant_with_tools = None
+        for item in reversed(aws_history):
+            if 'assistantResponseMessage' in item:
+                assistant_msg = item['assistantResponseMessage']
+                if 'toolUse' in assistant_msg and assistant_msg['toolUse']:
+                    last_assistant_with_tools = assistant_msg
+                    break
+        
+        # Add assistant message with tool calls
+        if last_assistant_with_tools:
+            content = last_assistant_with_tools.get('content', '')
+            tool_uses = last_assistant_with_tools.get('toolUse', [])
+            
+            # Convert AWS tool use to OpenAI tool calls
+            tool_calls = []
+            for tool_use in tool_uses:
+                tool_calls.append({
+                    'id': tool_use.get('toolUseId', ''),
+                    'type': 'function',
+                    'function': {
+                        'name': tool_use.get('name', ''),
+                        'arguments': tool_use.get('input', '{}')
+                    }
+                })
+            
+            # Add assistant message with tool calls
+            assistant_msg = {
+                'role': 'assistant',
+                'content': content if content else None
+            }
+            if tool_calls:
+                assistant_msg['tool_calls'] = tool_calls
+            
+            messages.append(assistant_msg)
         
         # Add tool results as tool messages
         for result in tool_results:
@@ -281,6 +375,13 @@ def translate_to_openai(aws_request: Dict[str, Any], model: str = 'gpt-4',
                 'role': 'tool',
                 'tool_call_id': tool_call_id,
                 'content': content
+            })
+        
+        # Add user message if present (after tool results)
+        if user_message:
+            messages.append({
+                'role': 'user',
+                'content': user_message
             })
     else:
         # Simple user message

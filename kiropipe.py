@@ -241,6 +241,7 @@ class KiroInterceptor:
         self.pending_simple_task = None  # Store pending simple-task request
         self.simple_task_lock = threading.Lock()  # Lock for simple-task handling
         self.last_real_model = None  # Track last non-simple-task model
+        self.block_aws_traffic = False  # Block all AWS traffic when using custom models
     
     def __del__(self):
         """Cleanup and print usage summary on shutdown"""
@@ -260,7 +261,20 @@ class KiroInterceptor:
         """Intercept all requests"""
         self.request_count += 1
         
-        # Block telemetry if not allowed
+        # Block telemetry/metrics when using custom models (global state)
+        # Note: generateAssistantResponse is NOT blocked here - it's routed based on the model in the request
+        if self.block_aws_traffic and 'telemetry' in flow.request.pretty_host:
+            if DEBUG_MODE_ENABLED:
+                print(f"\n{Fore.RED}[BLOCKED TELEMETRY] Custom model active{Style.RESET_ALL}")
+                print(f"  {Fore.CYAN}Path:{Style.RESET_ALL} {flow.request.path}")
+            flow.response = http.Response.make(
+                200,
+                b'{"status":"ok"}',
+                {"Content-Type": "application/json"}
+            )
+            return
+        
+        # Block telemetry if not allowed by config
         if not ALLOW_TELEMETRY and 'telemetry' in flow.request.pretty_host:
             if DEBUG_MODE_ENABLED:
                 print(f"\n{Fore.RED} [BLOCKED TELEMETRY]{Style.RESET_ALL} {Style.DIM}{flow.request.pretty_url}{Style.RESET_ALL}")
@@ -487,28 +501,51 @@ class KiroInterceptor:
                 self.current_model = selected_model
                 self.last_real_model = selected_model  # Track last non-simple-task model
                 
-                # Update model type tracking
+                # Step 3: Determine routing based on THIS request's model
                 model_info = CONFIG.get_model_info(selected_model)
+                
+                # Determine if this specific request is for a Kiro or custom model
+                is_kiro_request = False
                 if model_info:
-                    self.model_is_kiro = model_info['provider'] == 'kiro'
+                    is_kiro_request = model_info['provider'] == 'kiro'
                 else:
-                    self.model_is_kiro = selected_model in self.kiro_model_ids
+                    is_kiro_request = selected_model in self.kiro_model_ids
+                
+                # Update global telemetry blocking state based on model type
+                # This only affects telemetry/metrics, not generateAssistantResponse routing
+                old_block_state = self.block_aws_traffic
+                if is_kiro_request:
+                    # Passthrough model - allow telemetry
+                    self.block_aws_traffic = False
+                    if old_block_state and DEBUG_MODE_ENABLED:
+                        print(f"{Fore.GREEN}[TELEMETRY] Unblocking (passthrough model){Style.RESET_ALL}")
+                else:
+                    # Custom model - block telemetry
+                    self.block_aws_traffic = True
+                    if not old_block_state and DEBUG_MODE_ENABLED:
+                        print(f"{Fore.YELLOW}[TELEMETRY] Blocking (custom model){Style.RESET_ALL}")
                 
                 if DEBUG_MODE_ENABLED and selected_model != old_model:
-                    model_type = "Kiro" if self.model_is_kiro else "Custom"
+                    model_type = "Kiro" if is_kiro_request else "Custom"
                     print(f"{Fore.CYAN}[MODEL SELECTED] {selected_model} ({model_type}){Style.RESET_ALL}")
                 
-                # Step 3: Check if this model needs custom routing
-                model_info = CONFIG.get_model_info(selected_model)
+                # Step 4: Route this specific request based on its model
+                # If it's a Kiro model, let it pass through to AWS
+                # If it's a custom model, route to custom provider below
+                if is_kiro_request:
+                    if DEBUG_MODE_ENABLED:
+                        print(f"{Fore.GREEN}[ROUTING] Passthrough to AWS Q{Style.RESET_ALL}")
+                    # Don't set a response - let it pass through to AWS naturally
+                    return
                 
+                # At this point, we know it's a custom model request
                 if DEBUG_MODE_ENABLED:
                     print(f"{Fore.YELLOW}[ROUTING CHECK] Model: {selected_model}{Style.RESET_ALL}")
                     print(f"{Fore.YELLOW}[ROUTING CHECK] Model info from config: {model_info}{Style.RESET_ALL}")
                     print(f"{Fore.YELLOW}[ROUTING CHECK] Provider: {model_info['provider'] if model_info else 'None'}{Style.RESET_ALL}")
                 
-                
-                # Step 4: Route to custom provider if not Kiro
-                if model_info and model_info['provider'] != 'kiro':
+                # Step 5: Route to custom provider
+                if model_info:
                     # Direct API call to custom provider (no bridge needed)
                     provider_name = model_info['provider']
                     provider_config = CONFIG.get_provider_config(provider_name)
@@ -524,7 +561,7 @@ class KiroInterceptor:
                         
                         # Initialize retry handler
                         retry_handler = RetryHandler(RetryConfig(
-                            max_retries=3,
+                            max_retries=7,
                             base_delay=1.0,
                             max_delay=60.0,
                             timeout=300.0
@@ -633,9 +670,10 @@ class KiroInterceptor:
                                             print(f"{Fore.CYAN} [USAGE]{Style.RESET_ALL} Tracked: {input_tokens} in, {output_tokens} out")
                                     
                                     # Translate Anthropic events to AWS event stream with usage tracking
+                                    # NOTE: Don't include usage/metering for custom models to avoid showing "Credits used"
                                     aws_binary = b''.join(translate_anthropic_stream(
                                         anthropic_event_generator(),
-                                        include_usage=True,
+                                        include_usage=False,  # Don't send metering events for custom models
                                         usage_callback=usage_callback
                                     ))
                                     
@@ -678,6 +716,25 @@ class KiroInterceptor:
                                 print(f"  {Fore.CYAN}Messages:{Style.RESET_ALL} {len(openai_request.get('messages', []))}")
                                 if 'tools' in openai_request:
                                     print(f"  {Fore.CYAN}Tools:{Style.RESET_ALL} {len(openai_request['tools'])}")
+                                
+                                # Debug: Print message structure to see if tool results are included
+                                print(f"\n{Fore.YELLOW}[DEBUG] Message structure:{Style.RESET_ALL}")
+                                for i, msg in enumerate(openai_request.get('messages', [])):
+                                    role = msg.get('role')
+                                    if role == 'tool':
+                                        print(f"  {i+1}. {Fore.MAGENTA}tool{Style.RESET_ALL} (tool_call_id: {msg.get('tool_call_id', 'N/A')})")
+                                        content_preview = msg.get('content', '')[:50]
+                                        print(f"     Content: {content_preview}...")
+                                    elif role == 'assistant':
+                                        has_tool_calls = 'tool_calls' in msg
+                                        print(f"  {i+1}. {Fore.CYAN}assistant{Style.RESET_ALL} (has_tool_calls: {has_tool_calls})")
+                                        if has_tool_calls:
+                                            for tc in msg.get('tool_calls', []):
+                                                print(f"     - {tc['function']['name']} (id: {tc['id']})")
+                                    else:
+                                        content_preview = str(msg.get('content', ''))[:50]
+                                        print(f"  {i+1}. {Fore.GREEN}{role}{Style.RESET_ALL}: {content_preview}...")
+                                print()
                             
                             # Call OpenAI API with streaming (with retry logic)
                             # Note: We can't use retry_handler here because it would close the stream
@@ -741,9 +798,10 @@ class KiroInterceptor:
                                             print(f"{Fore.CYAN} [USAGE]{Style.RESET_ALL} Tracked: {input_tokens} in, {output_tokens} out")
                                     
                                     # Translate OpenAI events to AWS event stream with usage tracking
+                                    # NOTE: Don't include usage/metering for custom models to avoid showing "Credits used"
                                     aws_binary = b''.join(translate_openai_stream(
                                         openai_event_generator(),
-                                        include_usage=True,
+                                        include_usage=False,  # Don't send metering events for custom models
                                         usage_callback=usage_callback
                                     ))
                                     
@@ -829,9 +887,10 @@ class KiroInterceptor:
                                     print(f"{Fore.CYAN} [USAGE]{Style.RESET_ALL} Tracked: {input_tokens} in, {output_tokens} out")
                             
                             # Translate to AWS event stream with usage tracking
+                            # NOTE: Don't include usage/metering for custom models to avoid showing "Credits used"
                             aws_binary = b''.join(translate_openai_stream(
                                 litellm_event_generator(),
-                                include_usage=True,
+                                include_usage=False,  # Don't send metering events for custom models
                                 usage_callback=usage_callback
                             ))
                             

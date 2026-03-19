@@ -51,12 +51,27 @@ providers:
     enabled: true
     type: openai
     api_base: "https://openrouter.ai/api/v1"
-    api_key: null
-    description: "Anthropic Claude models"
+    api_key: -
+    description: "OpenRouter models."
     models:
       - name: "minimax/minimax-m2.5:free"
         display_name: "MiniMax M2.5"
         alias: ["minimax-m2.5"]
+        description: "via OpenRouter (free)"
+        max_tokens: 4096
+      - name: "qwen/qwen3-coder:free"
+        display_name: "Qwen3 Coder 480b"
+        alias: ["qwen-coder-480b"]
+        description: "via OpenRouter (free)"
+        max_tokens: 4096
+      - name: "openai/gpt-oss-120b:free"
+        display_name: "GPT OSS 120b"
+        alias: ["gpt-oss-120b"]
+        description: "via OpenRouter (free)"
+        max_tokens: 4096
+      - name: "nvidia/nemotron-3-super-120b-a12b:free"
+        display_name: "Nemotron 3s"
+        alias: ["nemotron-3s"]
         description: "via OpenRouter (free)"
         max_tokens: 4096
 
