@@ -20,17 +20,22 @@ from engine.event_stream_encoder import (
 )
 
 
-def translate_anthropic_stream(response_stream: Iterator[Dict[str, Any]], 
-                              include_usage: bool = True,
-                              usage_callback: Optional[callable] = None) -> Iterator[bytes]:
+def translate_anthropic_stream(response_stream: Iterator[Dict[str, Any]],
+                               include_usage: bool = True,
+                               usage_callback: Optional[callable] = None,
+                               tool_calls_out: Optional[Dict[str, Any]] = None) -> Iterator[bytes]:
     """
-    Translate Anthropic streaming response to AWS Event Stream format
-    
+    Translate Anthropic streaming response to AWS Event Stream format.
+
     Args:
-        response_stream: Iterator of Anthropic SSE events
-        include_usage: Whether to include usage metrics
-        usage_callback: Optional callback function(input_tokens, output_tokens)
-    
+        response_stream:  Iterator of Anthropic SSE events
+        include_usage:    Whether to include usage metrics
+        usage_callback:   Optional callback function(input_tokens, output_tokens)
+        tool_calls_out:   Optional dict populated with {toolUseId: {name, input}} for every
+                          tool call streamed out.  The caller (KiroInterceptor) stores this
+                          so it can reconstruct the assistant tool-use message on the next
+                          round-trip.
+
     Yields:
         AWS Event Stream binary chunks
     """
@@ -95,16 +100,25 @@ def translate_anthropic_stream(response_stream: Iterator[Dict[str, Any]],
         elif event_type == 'content_block_stop':
             # Tool use complete - send final empty chunk with stop=True
             block_index = event.get('index', 0)
-            
+
             if block_index in tool_use_index:
                 tool_id = tool_use_index[block_index]
                 if tool_id in tool_use_buffer:
+                    tool_info = tool_use_buffer[tool_id]
                     yield encode_tool_use_chunk(
-                        tool_use_buffer[tool_id]['name'],
+                        tool_info['name'],
                         tool_id,
                         '',
                         is_final=True  # Mark as final chunk
                     )
+                    # Populate tool_calls_out so the interceptor can cache name+input
+                    # keyed by toolUseId, enabling reconstruction of the assistant message
+                    # on the next request when Kiro sends back tool results.
+                    if tool_calls_out is not None:
+                        tool_calls_out[tool_id] = {
+                            'name':  tool_info['name'],
+                            'input': tool_info['input'],  # accumulated JSON string
+                        }
                     # Clear from buffers
                     tool_use_buffer.pop(tool_id, None)
                     tool_use_index.pop(block_index, None)

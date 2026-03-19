@@ -564,8 +564,10 @@ class KiroInterceptor:
                         # Initialize retry handler
                         retry_handler = RetryHandler(RetryConfig(
                             max_retries=7,
-                            base_delay=1.0,
-                            max_delay=60.0,
+                            base_delay=0.5,
+                            max_delay=30.0,
+                            exponent_cap=4,
+                            jitter_factor=0.25,
                             timeout=300.0
                         ))
                         
@@ -600,7 +602,8 @@ class KiroInterceptor:
                             anthropic_request = translate_to_anthropic(
                                 aws_body,
                                 model=self.current_model,
-                                max_tokens=4096
+                                max_tokens=4096,
+                                tool_call_cache=self.tool_call_cache
                             )
                             
                             if DEBUG_MODE_ENABLED:
@@ -610,86 +613,115 @@ class KiroInterceptor:
                                 if 'tools' in anthropic_request:
                                     print(f"  {Fore.CYAN}Tools:{Style.RESET_ALL} {len(anthropic_request['tools'])}")
                             
-                            # Call Anthropic API with streaming
-                            # Note: We can't use retry_handler here because it would close the stream
+                            if DEBUG_MODE_ENABLED:
+                                print(f"\n{Fore.YELLOW}[DEBUG] Message structure:{Style.RESET_ALL}")
+                                for i, msg in enumerate(anthropic_request.get('messages', [])):
+                                    role = msg.get('role')
+                                    body = msg.get('content')
+                                    if isinstance(body, list):
+                                        types = [b.get('type') for b in body]
+                                        has_tu = 'tool_use' in types
+                                        has_tr = 'tool_result' in types
+                                        print(f"  {i+1}. {Fore.CYAN}{role}{Style.RESET_ALL} (has_tool_use: {has_tu}, has_tool_result: {has_tr})")
+                                        if has_tu:
+                                            for b in body:
+                                                if b.get('type') == 'tool_use':
+                                                    print(f"     - {b['name']} (id: {b['id']})")
+                                    else:
+                                        preview = str(body or '')[:50]
+                                        print(f"  {i+1}. {Fore.GREEN}{role}{Style.RESET_ALL}: {preview}...")
+                                print()
+
+                            # Call Anthropic API with streaming + retry (same loop as OpenAI branch)
+                            from engine.response_translator import translate_anthropic_stream
+                            last_error_content = None
+                            last_error_status = 500
                             with httpx.Client(timeout=300.0) as client:
-                                response_stream = client.stream(
-                                    "POST",
-                                    f"{api_base}/messages",
-                                    json=anthropic_request,
-                                    headers={
-                                        "x-api-key": api_key,
-                                        "anthropic-version": "2023-06-01",
-                                        "content-type": "application/json"
-                                    }
-                                )
-                            
-                                with response_stream as response:
-                                    if DEBUG_MODE_ENABLED:
-                                        print(f"{Fore.GREEN} [ANTHROPIC]{Style.RESET_ALL} Response: {Fore.CYAN}{response.status_code}{Style.RESET_ALL}")
-                                    
-                                    if response.status_code != 200:
-                                        # Error response - return as-is
-                                        error_content = response.read()
-                                        flow.response = http.Response.make(
-                                            response.status_code,
-                                            error_content,
-                                            dict(response.headers)
-                                        )
-                                        return
-                                    
-                                    # Import response translator
-                                    from engine.response_translator import translate_anthropic_stream
-                                    
-                                    # Parse SSE stream and translate to AWS format
-                                    def anthropic_event_generator():
-                                        """Parse Anthropic SSE stream into event objects"""
-                                        buffer = ""
-                                        for chunk in response.iter_text():
-                                            buffer += chunk
-                                            # Process complete lines
-                                            while '\n' in buffer:
-                                                line, buffer = buffer.split('\n', 1)
-                                                line = line.strip()
-                                                if line.startswith('data: '):
-                                                    data = line[6:]  # Remove 'data: ' prefix
-                                                    if data and data != '[DONE]':
-                                                        try:
-                                                            yield json.loads(data)
-                                                        except json.JSONDecodeError:
-                                                            pass
-                                    
-                                    # Create usage callback for tracking
-                                    def usage_callback(input_tokens, output_tokens):
-                                        self.usage_tracker.track_request(
-                                            conversation_id=conversation_id,
-                                            model=self.current_model,
-                                            input_tokens=input_tokens,
-                                            output_tokens=output_tokens,
-                                            metadata={'provider': 'anthropic'}
-                                        )
-                                        if DEBUG_MODE_ENABLED:
-                                            print(f"{Fore.CYAN} [USAGE]{Style.RESET_ALL} Tracked: {input_tokens} in, {output_tokens} out")
-                                    
-                                    # Translate Anthropic events to AWS event stream with usage tracking
-                                    # NOTE: Don't include usage/metering for custom models to avoid showing "Credits used"
-                                    aws_binary = b''.join(translate_anthropic_stream(
-                                        anthropic_event_generator(),
-                                        include_usage=False,  # Don't send metering events for custom models
-                                        usage_callback=usage_callback
-                                    ))
-                                    
-                                    if DEBUG_MODE_ENABLED:
-                                        print(f"{Fore.GREEN} [ANTHROPIC]{Style.RESET_ALL} Translated to AWS format: {Fore.YELLOW}{len(aws_binary)} bytes{Style.RESET_ALL}")
-                                    
-                                    # Return AWS event stream response
-                                    flow.response = http.Response.make(
-                                        200,
-                                        aws_binary,
-                                        {
-                                            'Content-Type': 'application/vnd.amazon.eventstream',
-                                            'x-amzn-RequestId': f'anthropic-{self.current_model}'
+                                for attempt in range(retry_handler.config.max_retries + 1):
+                                    response_stream = client.stream(
+                                        "POST",
+                                        f"{api_base}/messages",
+                                        json=anthropic_request,
+                                        headers={
+                                            "x-api-key": api_key,
+                                            "anthropic-version": "2023-06-01",
+                                            "content-type": "application/json"
                                         }
+                                    )
+                                    with response_stream as response:
+                                        if DEBUG_MODE_ENABLED:
+                                            print(f"{Fore.GREEN} [ANTHROPIC]{Style.RESET_ALL} Response: {Fore.CYAN}{response.status_code}{Style.RESET_ALL} (attempt {attempt+1})")
+
+                                        if response.status_code != 200:
+                                            last_error_content = response.read()
+                                            last_error_status = response.status_code
+                                            if retry_handler.should_retry(response.status_code, attempt):
+                                                delay = retry_handler.calculate_delay(attempt)
+                                                if DEBUG_MODE_ENABLED:
+                                                    print(f"{Fore.YELLOW}[RETRY]{Style.RESET_ALL} Status {response.status_code}, retrying in {delay:.2f}s (attempt {attempt+1}/{retry_handler.config.max_retries})")
+                                                time.sleep(delay)
+                                                continue
+                                            flow.response = http.Response.make(
+                                                last_error_status,
+                                                last_error_content,
+                                                {'content-type': 'application/json'}
+                                            )
+                                            return
+
+                                        def anthropic_event_generator():
+                                            """Parse Anthropic SSE stream into event objects"""
+                                            buffer = ""
+                                            for chunk in response.iter_text():
+                                                buffer += chunk
+                                                while '\n' in buffer:
+                                                    line, buffer = buffer.split('\n', 1)
+                                                    line = line.strip()
+                                                    if line.startswith('data: '):
+                                                        data = line[6:]
+                                                        if data and data != '[DONE]':
+                                                            try:
+                                                                yield json.loads(data)
+                                                            except json.JSONDecodeError:
+                                                                pass
+
+                                        def usage_callback(input_tokens, output_tokens):
+                                            self.usage_tracker.track_request(
+                                                conversation_id=conversation_id,
+                                                model=self.current_model,
+                                                input_tokens=input_tokens,
+                                                output_tokens=output_tokens,
+                                                metadata={'provider': 'anthropic'}
+                                            )
+                                            if DEBUG_MODE_ENABLED:
+                                                print(f"{Fore.CYAN} [USAGE]{Style.RESET_ALL} Tracked: {input_tokens} in, {output_tokens} out")
+
+                                        tool_calls_out: Dict[str, Any] = {}
+                                        aws_binary = b''.join(translate_anthropic_stream(
+                                            anthropic_event_generator(),
+                                            include_usage=False,
+                                            usage_callback=usage_callback,
+                                            tool_calls_out=tool_calls_out
+                                        ))
+                                        self.tool_call_cache.update(tool_calls_out)
+
+                                        if DEBUG_MODE_ENABLED:
+                                            print(f"{Fore.GREEN} [ANTHROPIC]{Style.RESET_ALL} Translated to AWS format: {Fore.YELLOW}{len(aws_binary)} bytes{Style.RESET_ALL}")
+
+                                        flow.response = http.Response.make(
+                                            200,
+                                            aws_binary,
+                                            {
+                                                'Content-Type': 'application/vnd.amazon.eventstream',
+                                                'x-amzn-RequestId': f'anthropic-{self.current_model}'
+                                            }
+                                        )
+                                        return  # success — exit retry loop
+                                # All retries exhausted — return last error
+                                if last_error_content is not None:
+                                    flow.response = http.Response.make(
+                                        last_error_status,
+                                        last_error_content,
+                                        {'content-type': 'application/json'}
                                     )
                                     return
                         
@@ -739,91 +771,100 @@ class KiroInterceptor:
                                         print(f"  {i+1}. {Fore.GREEN}{role}{Style.RESET_ALL}: {content_preview}...")
                                 print()
                             
-                            # Call OpenAI API with streaming (with retry logic)
-                            # Note: We can't use retry_handler here because it would close the stream
-                            # Instead, we'll handle retries manually if needed
+                            # Call OpenAI-compatible API with streaming + retry.
+                            # We can't use execute_with_retry (it closes the stream), so we
+                            # wrap the whole request in a manual loop using retry_handler's
+                            # delay/should_retry helpers — same backoff curve as LiteLLM.
+                            from engine.response_translator import translate_openai_stream
+                            last_error_content = None
+                            last_error_status = 500
                             with httpx.Client(timeout=300.0) as client:
-                                response_stream = client.stream(
-                                    "POST",
-                                    f"{api_base}/chat/completions",
-                                    json=openai_request,
-                                    headers={
-                                        "Authorization": f"Bearer {api_key}",
-                                        "content-type": "application/json"
-                                    }
-                                )
-                            
-                                with response_stream as response:
-                                    if DEBUG_MODE_ENABLED:
-                                        print(f"{Fore.GREEN} [OPENAI]{Style.RESET_ALL} Response: {Fore.CYAN}{response.status_code}{Style.RESET_ALL}")
-                                    
-                                    if response.status_code != 200:
-                                        # Error response - return as-is
-                                        error_content = response.read()
-                                        flow.response = http.Response.make(
-                                            response.status_code,
-                                            error_content,
-                                            dict(response.headers)
-                                        )
-                                        return
-                                    
-                                    # Import response translator
-                                    from engine.response_translator import translate_openai_stream
-                                    
-                                    # Parse SSE stream and translate to AWS format
-                                    def openai_event_generator():
-                                        """Parse OpenAI SSE stream into event objects"""
-                                        buffer = ""
-                                        for chunk in response.iter_text():
-                                            buffer += chunk
-                                            # Process complete lines
-                                            while '\n' in buffer:
-                                                line, buffer = buffer.split('\n', 1)
-                                                line = line.strip()
-                                                if line.startswith('data: '):
-                                                    data = line[6:]  # Remove 'data: ' prefix
-                                                    if data and data != '[DONE]':
-                                                        try:
-                                                            yield json.loads(data)
-                                                        except json.JSONDecodeError:
-                                                            pass
-                                    
-                                    # Create usage callback for tracking
-                                    def usage_callback(input_tokens, output_tokens):
-                                        self.usage_tracker.track_request(
-                                            conversation_id=conversation_id,
-                                            model=self.current_model,
-                                            input_tokens=input_tokens,
-                                            output_tokens=output_tokens,
-                                            metadata={'provider': 'openai'}
-                                        )
-                                        if DEBUG_MODE_ENABLED:
-                                            print(f"{Fore.CYAN} [USAGE]{Style.RESET_ALL} Tracked: {input_tokens} in, {output_tokens} out")
-                                    
-                                    # Translate OpenAI events to AWS event stream with usage tracking
-                                    # NOTE: Don't include usage/metering for custom models to avoid showing "Credits used"
-                                    tool_calls_out: Dict[str, Any] = {}
-                                    aws_binary = b''.join(translate_openai_stream(
-                                        openai_event_generator(),
-                                        include_usage=False,  # Don't send metering events for custom models
-                                        usage_callback=usage_callback,
-                                        tool_calls_out=tool_calls_out
-                                    ))
-                                    # Cache any tool calls that were streamed out so we can
-                                    # reconstruct the assistant message on the next round-trip.
-                                    self.tool_call_cache.update(tool_calls_out)
-                                    
-                                    if DEBUG_MODE_ENABLED:
-                                        print(f"{Fore.GREEN} [OPENAI]{Style.RESET_ALL} Translated to AWS format: {Fore.YELLOW}{len(aws_binary)} bytes{Style.RESET_ALL}")
-                                    
-                                    # Return AWS event stream response
-                                    flow.response = http.Response.make(
-                                        200,
-                                        aws_binary,
-                                        {
-                                            'Content-Type': 'application/vnd.amazon.eventstream',
-                                            'x-amzn-RequestId': f'openai-{self.current_model}'
+                                for attempt in range(retry_handler.config.max_retries + 1):
+                                    response_stream = client.stream(
+                                        "POST",
+                                        f"{api_base}/chat/completions",
+                                        json=openai_request,
+                                        headers={
+                                            "Authorization": f"Bearer {api_key}",
+                                            "content-type": "application/json"
                                         }
+                                    )
+                                    with response_stream as response:
+                                        if DEBUG_MODE_ENABLED:
+                                            print(f"{Fore.GREEN} [OPENAI]{Style.RESET_ALL} Response: {Fore.CYAN}{response.status_code}{Style.RESET_ALL} (attempt {attempt+1})")
+                                        
+                                        if response.status_code != 200:
+                                            last_error_content = response.read()
+                                            last_error_status = response.status_code
+                                            if retry_handler.should_retry(response.status_code, attempt):
+                                                delay = retry_handler.calculate_delay(attempt)
+                                                if DEBUG_MODE_ENABLED:
+                                                    print(f"{Fore.YELLOW}[RETRY]{Style.RESET_ALL} Status {response.status_code}, retrying in {delay:.2f}s (attempt {attempt+1}/{retry_handler.config.max_retries})")
+                                                time.sleep(delay)
+                                                continue
+                                            # Non-retryable error — return immediately
+                                            flow.response = http.Response.make(
+                                                last_error_status,
+                                                last_error_content,
+                                                {'content-type': 'application/json'}
+                                            )
+                                            return
+                                        
+                                        # 200 OK — consume and translate the stream
+                                        def openai_event_generator():
+                                            """Parse OpenAI SSE stream into event objects"""
+                                            buffer = ""
+                                            for chunk in response.iter_text():
+                                                buffer += chunk
+                                                while '\n' in buffer:
+                                                    line, buffer = buffer.split('\n', 1)
+                                                    line = line.strip()
+                                                    if line.startswith('data: '):
+                                                        data = line[6:]
+                                                        if data and data != '[DONE]':
+                                                            try:
+                                                                yield json.loads(data)
+                                                            except json.JSONDecodeError:
+                                                                pass
+                                        
+                                        def usage_callback(input_tokens, output_tokens):
+                                            self.usage_tracker.track_request(
+                                                conversation_id=conversation_id,
+                                                model=self.current_model,
+                                                input_tokens=input_tokens,
+                                                output_tokens=output_tokens,
+                                                metadata={'provider': 'openai'}
+                                            )
+                                            if DEBUG_MODE_ENABLED:
+                                                print(f"{Fore.CYAN} [USAGE]{Style.RESET_ALL} Tracked: {input_tokens} in, {output_tokens} out")
+                                        
+                                        tool_calls_out: Dict[str, Any] = {}
+                                        aws_binary = b''.join(translate_openai_stream(
+                                            openai_event_generator(),
+                                            include_usage=False,
+                                            usage_callback=usage_callback,
+                                            tool_calls_out=tool_calls_out
+                                        ))
+                                        self.tool_call_cache.update(tool_calls_out)
+                                        
+                                        if DEBUG_MODE_ENABLED:
+                                            print(f"{Fore.GREEN} [OPENAI]{Style.RESET_ALL} Translated to AWS format: {Fore.YELLOW}{len(aws_binary)} bytes{Style.RESET_ALL}")
+                                        
+                                        flow.response = http.Response.make(
+                                            200,
+                                            aws_binary,
+                                            {
+                                                'Content-Type': 'application/vnd.amazon.eventstream',
+                                                'x-amzn-RequestId': f'openai-{self.current_model}'
+                                            }
+                                        )
+                                        return  # success — exit retry loop
+                                # All retries exhausted — return last error
+                                if last_error_content is not None:
+                                    flow.response = http.Response.make(
+                                        last_error_status,
+                                        last_error_content,
+                                        {'content-type': 'application/json'}
                                     )
                                     return
                         

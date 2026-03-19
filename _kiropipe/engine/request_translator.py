@@ -120,157 +120,142 @@ def extract_tool_results(aws_request: Dict[str, Any]) -> Optional[List[Dict[str,
         return None
 
 
-def build_anthropic_messages(user_message: str, tool_results: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
-    """Build Anthropic messages array from user message and tool results"""
-    messages = []
-    
-    # If there are tool results, we need to include the previous assistant message with tool use
-    if tool_results:
-        # Add user message with tool results
-        content = []
-        
-        # Add text if present
-        if user_message:
-            content.append({
-                'type': 'text',
-                'text': user_message
-            })
-        
-        # Add tool results
-        for result in tool_results:
-            tool_use_id = result.get('toolUseId', '')
-            status = result.get('status', 'success')
-            
-            # Extract content - AWS Q format has content as array of objects
-            result_content = result.get('content', [])
-            
-            # Convert to string
-            if isinstance(result_content, list):
-                # Extract text from content array
-                text_parts = []
-                for item in result_content:
-                    if isinstance(item, dict) and 'text' in item:
-                        text_parts.append(item['text'])
-                    elif isinstance(item, str):
-                        text_parts.append(item)
-                tool_content = '\n'.join(text_parts) if text_parts else ''
-            elif isinstance(result_content, str):
-                tool_content = result_content
-            else:
-                tool_content = str(result_content)
-            
-            # Handle errors
-            if status != 'success':
-                error_msg = result.get('error', 'Tool execution failed')
-                tool_content = f"Error: {error_msg}"
-            
-            content.append({
-                'type': 'tool_result',
-                'tool_use_id': tool_use_id,
-                'content': tool_content
-            })
-        
-        messages.append({
-            'role': 'user',
-            'content': content
-        })
-    else:
-        # Simple user message
-        messages.append({
-            'role': 'user',
-            'content': user_message
-        })
-    
-    return messages
 
-
-def translate_to_anthropic(aws_request: Dict[str, Any], model: str = 'claude-3-5-sonnet-20241022', 
-                          max_tokens: int = 4096) -> Dict[str, Any]:
+def translate_to_anthropic(aws_request: Dict[str, Any], model: str = 'claude-3-5-sonnet-20241022',
+                            max_tokens: int = 4096,
+                            tool_call_cache: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
-    Translate AWS Q request to Anthropic Messages API format
-    
+    Translate AWS Q request to Anthropic Messages API format.
+
     Args:
-        aws_request: AWS Q API request body
-        model: Anthropic model to use
-        max_tokens: Maximum tokens in response
-    
+        aws_request:      AWS Q API request body
+        model:            Anthropic model name
+        max_tokens:       Maximum tokens in response
+        tool_call_cache:  Dict mapping toolUseId -> {name, input} populated by the
+                          response translator when tool calls are streamed out.  Used to
+                          reconstruct the assistant tool-use message on the return trip
+                          because Kiro does NOT put the in-flight assistant turn into
+                          history until the full tool round-trip is complete.
+
     Returns:
         Anthropic Messages API request body
     """
-    # Extract components
-    history = extract_conversation_history(aws_request)
     user_message = extract_user_message(aws_request)
-    tools = extract_tools(aws_request)
+    tools        = extract_tools(aws_request)
     tool_results = extract_tool_results(aws_request)
-    
-    # Build messages from history + current message
-    messages = history.copy() if history else []
-    
-    # Handle tool results - need to add assistant message with tool use from history
+
+    conv_state  = aws_request.get('conversationState', {})
+    aws_history = conv_state.get('history', [])
+
+    messages: List[Dict[str, Any]] = []
+
+    # ------------------------------------------------------------------ #
+    # Walk history and convert every turn, including completed tool-use   #
+    # round-trips that are fully committed to history.                    #
+    # ------------------------------------------------------------------ #
+    i = 0
+    while i < len(aws_history):
+        item = aws_history[i]
+
+        if 'userInputMessage' in item:
+            user_input        = item['userInputMessage']
+            text_content      = user_input.get('content', '')
+            context           = user_input.get('userInputMessageContext', {})
+            hist_tool_results = context.get('toolResults', [])
+
+            if hist_tool_results:
+                # Completed tool round-trip — the preceding item must be the
+                # assistant message that issued the tool call(s).
+                if i > 0 and 'assistantResponseMessage' in aws_history[i - 1]:
+                    prev_assistant = aws_history[i - 1]['assistantResponseMessage']
+                    tool_uses = prev_assistant.get('toolUse', [])
+                    if tool_uses:
+                        asst_content = []
+                        if prev_assistant.get('content'):
+                            asst_content.append({'type': 'text', 'text': prev_assistant['content']})
+                        asst_content.extend([_aws_tool_use_to_anthropic_block(tu) for tu in tool_uses])
+                        messages.append({'role': 'assistant', 'content': asst_content})
+
+                # Tool results go into a user message as tool_result blocks.
+                result_blocks = [_tool_result_to_anthropic_block(r) for r in hist_tool_results]
+                user_content: List[Any] = result_blocks
+                if text_content:
+                    user_content = [{'type': 'text', 'text': text_content}] + result_blocks
+                messages.append({'role': 'user', 'content': user_content})
+
+            elif text_content:
+                messages.append({'role': 'user', 'content': text_content})
+
+        elif 'assistantResponseMessage' in item:
+            assistant_msg = item['assistantResponseMessage']
+
+            if assistant_msg.get('toolUse'):
+                # Skip — handled together with the following toolResults turn above.
+                i += 1
+                continue
+
+            content = assistant_msg.get('content', '')
+            if content:
+                messages.append({'role': 'assistant', 'content': content})
+
+        i += 1
+
+    # ------------------------------------------------------------------ #
+    # Handle the CURRENT tool-results turn.                               #
+    #                                                                     #
+    # Kiro does not add the in-flight assistant message to history until  #
+    # after the round-trip completes, so we use tool_call_cache which the #
+    # response translator populates when it streams tool-call events out. #
+    # ------------------------------------------------------------------ #
     if tool_results:
-        # Extract the last assistant message from AWS history which should have tool use
-        conv_state = aws_request.get('conversationState', {})
-        aws_history = conv_state.get('history', [])
-        
-        # Find the last assistant message with tool use
-        last_assistant_with_tools = None
-        for item in reversed(aws_history):
-            if 'assistantResponseMessage' in item:
-                assistant_msg = item['assistantResponseMessage']
-                if 'toolUse' in assistant_msg and assistant_msg['toolUse']:
-                    last_assistant_with_tools = assistant_msg
-                    break
-        
-        # Add assistant message with tool use
-        if last_assistant_with_tools:
-            content_blocks = []
-            
-            # Add text content if present
-            text_content = last_assistant_with_tools.get('content', '')
-            if text_content:
-                content_blocks.append({
-                    'type': 'text',
-                    'text': text_content
-                })
-            
-            # Add tool use blocks
-            tool_uses = last_assistant_with_tools.get('toolUse', [])
-            for tool_use in tool_uses:
-                # Parse input JSON string to dict
-                input_str = tool_use.get('input', '{}')
+        cache = tool_call_cache or {}
+
+        # Reconstruct the assistant message that triggered these tool calls.
+        asst_content = []
+        for result in tool_results:
+            tool_id  = result.get('toolUseId', '')
+            cached   = cache.get(tool_id, {})
+            input_val = cached.get('input', '{}')
+            if isinstance(input_val, str):
                 try:
-                    input_dict = json.loads(input_str) if isinstance(input_str, str) else input_str
-                except:
+                    input_dict = json.loads(input_val) if input_val else {}
+                except json.JSONDecodeError:
                     input_dict = {}
-                
-                content_blocks.append({
-                    'type': 'tool_use',
-                    'id': tool_use.get('toolUseId', ''),
-                    'name': tool_use.get('name', ''),
-                    'input': input_dict
-                })
-            
-            messages.append({
-                'role': 'assistant',
-                'content': content_blocks
+            else:
+                input_dict = input_val or {}
+            asst_content.append({
+                'type':  'tool_use',
+                'id':    tool_id,
+                'name':  cached.get('name', ''),
+                'input': input_dict,
             })
-    
-    # Add current message with tool results
-    current_messages = build_anthropic_messages(user_message, tool_results)
-    messages.extend(current_messages)
-    
-    # Build Anthropic request
-    anthropic_request = {
-        'model': model,
+
+        if asst_content:
+            messages.append({'role': 'assistant', 'content': asst_content})
+
+        # Tool results as a user message with tool_result content blocks.
+        result_blocks = [_tool_result_to_anthropic_block(r) for r in tool_results]
+        user_content_parts: List[Any] = result_blocks
+        if user_message:
+            user_content_parts = [{'type': 'text', 'text': user_message}] + result_blocks
+        messages.append({'role': 'user', 'content': user_content_parts})
+
+    else:
+        messages.append({'role': 'user', 'content': user_message})
+
+    # ------------------------------------------------------------------ #
+    # Build final request                                                  #
+    # ------------------------------------------------------------------ #
+    anthropic_request: Dict[str, Any] = {
+        'model':      model,
         'max_tokens': max_tokens,
-        'messages': messages,
-        'stream': True  # Always stream for real-time responses
+        'messages':   messages,
+        'stream':     True,
     }
-    
-    # Add tools if present
+
     if tools:
         anthropic_request['tools'] = tools
-    
+
     return anthropic_request
 
 
@@ -334,6 +319,53 @@ def _aws_tool_use_to_openai_call(tool_use: Dict[str, Any]) -> Dict[str, Any]:
             'arguments': arguments,
         },
     }
+
+
+def _aws_tool_use_to_anthropic_block(tool_use: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Convert an AWS Q toolUse entry to an Anthropic content block.
+    Anthropic requires 'input' to be a dict, never a string.
+    """
+    input_val = tool_use.get('input', '{}')
+    if isinstance(input_val, str):
+        try:
+            input_dict = json.loads(input_val) if input_val else {}
+        except json.JSONDecodeError:
+            input_dict = {}
+    else:
+        input_dict = input_val if input_val else {}
+
+    return {
+        'type': 'tool_use',
+        'id': tool_use.get('toolUseId', ''),
+        'name': tool_use.get('name', ''),
+        'input': input_dict,
+    }
+
+
+def _tool_result_to_anthropic_block(result: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Convert a single AWS Q toolResult entry to an Anthropic tool_result content block.
+    Status is checked case-insensitively; genuine errors set is_error=True.
+    """
+    tool_use_id = result.get('toolUseId', '')
+    status = result.get('status', 'success')
+    result_content = result.get('content', [])
+
+    content = _extract_tool_content(result_content)
+
+    block: Dict[str, Any] = {
+        'type': 'tool_result',
+        'tool_use_id': tool_use_id,
+        'content': content,
+    }
+
+    if status.lower() not in ('success', 'ok', ''):
+        error_msg = result.get('error', '') or content or 'Tool execution failed'
+        block['content'] = f"Error: {error_msg}"
+        block['is_error'] = True
+
+    return block
 
 
 def translate_to_openai(aws_request: Dict[str, Any], model: str = 'gpt-4',

@@ -16,15 +16,17 @@ class RetryConfig:
     def __init__(
         self,
         max_retries: int = 3,
-        base_delay: float = 1.0,
-        max_delay: float = 60.0,
-        jitter_factor: float = 0.1,
+        base_delay: float = 0.5,
+        max_delay: float = 30.0,
+        exponent_cap: int = 4,
+        jitter_factor: float = 0.25,
         retry_on_status: tuple = (429, 500, 502, 503, 504),
         timeout: float = 300.0
     ):
         self.max_retries = max_retries
         self.base_delay = base_delay
         self.max_delay = max_delay
+        self.exponent_cap = exponent_cap  # Stop doubling after this many attempts
         self.jitter_factor = jitter_factor
         self.retry_on_status = retry_on_status
         self.timeout = timeout
@@ -38,20 +40,16 @@ class RetryHandler:
     
     def calculate_delay(self, attempt: int) -> float:
         """
-        Calculate delay with exponential backoff and jitter
-        
-        Args:
-            attempt: Current attempt number (0-indexed)
-        
-        Returns:
-            Delay in seconds
+        Calculate delay with capped exponential backoff and jitter.
+        Growth stops doubling after exponent_cap attempts, then plateaus
+        (still hard-capped by max_delay).
+
+        Example with base=0.5, exponent_cap=4, max=30:
+          attempt 0->0.5s  1->1s  2->2s  3->4s  4+->8s  (+jitter)
         """
-        # Exponential backoff: base_delay * 2^attempt
-        delay = min(self.config.base_delay * (2 ** attempt), self.config.max_delay)
-        
-        # Add jitter to prevent thundering herd
+        effective_exp = min(attempt, self.config.exponent_cap)
+        delay = min(self.config.base_delay * (2 ** effective_exp), self.config.max_delay)
         jitter = random.uniform(0, delay * self.config.jitter_factor)
-        
         return delay + jitter
     
     def should_retry(self, status_code: int, attempt: int, exception: Optional[Exception] = None) -> bool:
