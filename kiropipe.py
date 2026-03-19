@@ -586,7 +586,15 @@ class KiroInterceptor:
                         
                         if DEBUG_MODE_ENABLED:
                             print(f"{Fore.YELLOW}[ROUTING] Provider: {provider_name}, Type: {provider_type}{Style.RESET_ALL}")
-                        
+
+                        # Resolve the model name to send in the API request.
+                        # 'api_model' in the model config lets you separate the internal
+                        # routing name (e.g. 'qwen3-coder-flash') from the string the
+                        # upstream API actually expects (e.g. 'qwen/qwen3-coder-flash').
+                        api_model_name = model_info['model'].get('api_model', self.current_model)
+                        if DEBUG_MODE_ENABLED and api_model_name != self.current_model:
+                            print(f"{Fore.CYAN}[MODEL] Remapped '{self.current_model}' -> '{api_model_name}' for API request{Style.RESET_ALL}")
+
                         if provider_type == 'anthropic':
                             # Import request translator
                             from engine.request_translator import translate_to_anthropic
@@ -601,7 +609,7 @@ class KiroInterceptor:
                             # Use full request translation (includes history, tools, tool results)
                             anthropic_request = translate_to_anthropic(
                                 aws_body,
-                                model=self.current_model,
+                                model=api_model_name,
                                 max_tokens=4096,
                                 tool_call_cache=self.tool_call_cache
                             )
@@ -740,11 +748,11 @@ class KiroInterceptor:
                             # Use full request translation (includes history, tools, tool results)
                             openai_request = translate_to_openai(
                                 aws_body,
-                                model=self.current_model,
+                                model=api_model_name,
                                 max_tokens=4096,
                                 tool_call_cache=self.tool_call_cache
                             )
-                            
+
                             if DEBUG_MODE_ENABLED:
                                 print(f"{Fore.CYAN} [OPENAI]{Style.RESET_ALL} Calling API...")
                                 print(f"  {Fore.CYAN}Model:{Style.RESET_ALL} {self.current_model}")
@@ -810,22 +818,66 @@ class KiroInterceptor:
                                             )
                                             return
                                         
-                                        # 200 OK — consume and translate the stream
+                                        # 200 OK — consume and translate the stream.
+                                        # Handles three common response formats:
+                                        #  a) Standard SSE:  'data: {...}\n'
+                                        #  b) Bare JSON lines: '{...}\n'  (some local proxies)
+                                        #  c) Non-streaming: single JSON object with 'choices'
                                         def openai_event_generator():
-                                            """Parse OpenAI SSE stream into event objects"""
+                                            """Parse OpenAI response into event objects, tolerating non-SSE formats"""
                                             buffer = ""
+                                            yielded = False
                                             for chunk in response.iter_text():
                                                 buffer += chunk
                                                 while '\n' in buffer:
                                                     line, buffer = buffer.split('\n', 1)
                                                     line = line.strip()
+                                                    if not line:
+                                                        continue
+                                                    # Standard SSE prefix
                                                     if line.startswith('data: '):
                                                         data = line[6:]
                                                         if data and data != '[DONE]':
                                                             try:
                                                                 yield json.loads(data)
+                                                                yielded = True
                                                             except json.JSONDecodeError:
                                                                 pass
+                                                    # Bare JSON line (no 'data: ' prefix)
+                                                    elif line.startswith('{'):
+                                                        try:
+                                                            yield json.loads(line)
+                                                            yielded = True
+                                                        except json.JSONDecodeError:
+                                                            pass
+                                            # Flush any remaining buffer content
+                                            if buffer.strip() and buffer.strip().startswith('{'):
+                                                try:
+                                                    yield json.loads(buffer.strip())
+                                                    yielded = True
+                                                except json.JSONDecodeError:
+                                                    pass
+                                            # Non-streaming fallback: single JSON object with 'choices'
+                                            # Some proxies return this even when stream=True is requested.
+                                            if not yielded and buffer.strip():
+                                                try:
+                                                    obj = json.loads(buffer.strip())
+                                                    if 'choices' in obj:
+                                                        # Wrap non-streaming response as a single SSE chunk
+                                                        choice = obj['choices'][0]
+                                                        msg = choice.get('message', {})
+                                                        yield {
+                                                            'choices': [{
+                                                                'delta': {
+                                                                    'content':    msg.get('content'),
+                                                                    'tool_calls': msg.get('tool_calls'),
+                                                                },
+                                                                'finish_reason': choice.get('finish_reason', 'stop'),
+                                                            }],
+                                                            'usage': obj.get('usage', {}),
+                                                        }
+                                                except json.JSONDecodeError:
+                                                    pass
                                         
                                         def usage_callback(input_tokens, output_tokens):
                                             self.usage_tracker.track_request(
@@ -881,11 +933,11 @@ class KiroInterceptor:
                             # Translate to OpenAI format using full translation
                             openai_request = translate_to_openai(
                                 aws_body,
-                                model=self.current_model,
+                                model=api_model_name,
                                 max_tokens=4096,
                                 tool_call_cache=self.tool_call_cache
                             )
-                            
+
                             if DEBUG_MODE_ENABLED:
                                 print(f"{Fore.CYAN} [LITELLM]{Style.RESET_ALL} Using model: {self.current_model}")
                                 print(f"  {Fore.CYAN}Messages:{Style.RESET_ALL} {len(openai_request.get('messages', []))}")
@@ -898,7 +950,7 @@ class KiroInterceptor:
                             # Define API call function for retry handler
                             def make_litellm_call():
                                 return completion(
-                                    model=self.current_model,
+                                    model=api_model_name,
                                     messages=openai_request['messages'],
                                     tools=openai_request.get('tools'),
                                     max_tokens=openai_request.get('max_tokens', 4096),

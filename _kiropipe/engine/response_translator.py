@@ -192,7 +192,8 @@ def translate_openai_stream(response_stream: Iterator[Dict[str, Any]],
             yield encode_text_chunk(delta['content'])
         
         # Handle tool calls
-        if 'tool_calls' in delta:
+        # Guard against proxies that emit "tool_calls": null in non-tool chunks
+        if delta.get('tool_calls'):
             for tool_call in delta['tool_calls']:
                 index = tool_call.get('index', 0)
                 tool_id = tool_call.get('id', '')

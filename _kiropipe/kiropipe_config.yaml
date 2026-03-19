@@ -18,7 +18,7 @@ kiro_endpoint:
 
 # Debug settings
 debug:
-  debug_mode_enabled: true
+  debug_mode_enabled: false
   store_interaction_blocks: false
 
 # Providers
@@ -50,21 +50,18 @@ providers:
     enabled: true
     type: openai
     api_base: "http://localhost:8317/v1"
-    api_key: -
+    api_key: null
     description: "..."
     models:
-      - name: "qwen3-coder-flash"
+      - name: "qwen-flash"
         display_name: "Qwen Flash"
-        alias: ["qwen-flash"]
         description: "via CliProxyAPI (oAuth)"
-      - name: "qwen3-coder-plus"
-        display_name: "Qwen Plusr"
-        alias: ["qwen-plus"]
+      - name: "qwen-plus"
+        display_name: "Qwen Plus"
         description: "via CliProxyAPI (oAuth)"
         max_tokens: 4096
       - name: "gemini-3-pro"
         display_name: "Gemini 3 Pro"
-        alias: ["gemini-3-pro"]
         description: "via CliProxyAPI (oAuth)"
         max_tokens: 4096
       - name: "gemini-3-flash"
@@ -87,7 +84,7 @@ providers:
     enabled: true
     type: openai
     api_base: "https://openrouter.ai/api/v1"
-    api_key: -
+    api_key: null
     description: "OpenRouter models."
     models:
       - name: "minimax/minimax-m2.5:free"
