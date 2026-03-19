@@ -11,7 +11,7 @@ kiro:
 
 # Kiro endpoint settings (TRUE = allow, FALSE = block)
 kiro_endpoint:
-  telemetry: false
+  telemetry: true
   updates: false
   models: true
   force_toggle_usage_limits: null  # Auto mode
