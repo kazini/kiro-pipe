@@ -223,9 +223,118 @@ except Exception as e:
     CONFIG = None
     CURRENT_MODEL = 'kiro-default'
 
+# ── Config hot-reload ──────────────────────────────────────────────────────
+_config_lock = threading.Lock()
+_config_mtime = 0.0
+_config_path  = KIROPIPE_DIR / 'kiropipe_config.yaml'
+
+def _reload_globals_from_config():
+    """Re-apply config values to module-level globals after a reload."""
+    global ALLOW_TELEMETRY, ALLOW_UPDATES, FORCE_TOGGLE_USAGE_LIMITS
+    global DEBUG_MODE_ENABLED, DEBUG_STORE_INTERACTION_BLOCKS, ALLOW_KIRO_MODELS
+    if CONFIG:
+        ALLOW_TELEMETRY             = CONFIG.get('kiro_endpoint.telemetry', ALLOW_TELEMETRY)
+        ALLOW_UPDATES               = CONFIG.get('kiro_endpoint.updates', ALLOW_UPDATES)
+        FORCE_TOGGLE_USAGE_LIMITS   = CONFIG.get('kiro_endpoint.force_toggle_usage_limits', FORCE_TOGGLE_USAGE_LIMITS)
+        DEBUG_MODE_ENABLED          = CONFIG.get('debug.debug_mode_enabled', DEBUG_MODE_ENABLED)
+        DEBUG_STORE_INTERACTION_BLOCKS = CONFIG.get('debug.store_interaction_blocks', DEBUG_STORE_INTERACTION_BLOCKS)
+        ALLOW_KIRO_MODELS           = CONFIG.get('kiro_endpoint.models', ALLOW_KIRO_MODELS)
+
+def _config_watcher():
+    """Background thread: polls config file mtime and reloads on change."""
+    global CONFIG, _config_mtime
+    while True:
+        try:
+            mtime = _config_path.stat().st_mtime
+            if mtime != _config_mtime and _config_mtime != 0.0:
+                with _config_lock:
+                    new_cfg = load_config(_config_path)
+                    if new_cfg:
+                        CONFIG = new_cfg
+                        _reload_globals_from_config()
+                        # Mark all active interceptor instances to rebuild the model list.
+                        # 'addons' is defined at module level after this thread starts,
+                        # so we look it up in the module globals at call time.
+                        import sys as _sys
+                        _mod = _sys.modules[__name__]
+                        for _addon in getattr(_mod, 'addons', []):
+                            if hasattr(_addon, '_model_list_dirty'):
+                                _addon._model_list_dirty = True
+                                _addon._kiro_models_cache = []  # force cold-start rebuild
+                        print(f"{Fore.CYAN}[Config] Reloaded — changes applied live{Style.RESET_ALL}")
+            _config_mtime = mtime
+        except Exception:
+            pass
+        time.sleep(2)
+
+# Seed the initial mtime so the watcher doesn't fire on startup
+try:
+    _config_mtime = _config_path.stat().st_mtime
+except Exception:
+    pass
+
+if not any(t.name == 'config-watcher' for t in threading.enumerate()):
+    threading.Thread(target=_config_watcher, daemon=True, name='config-watcher').start()
+# ────────────────────────────────────────────────────────────────────────────
+
 if DEBUG_STORE_INTERACTION_BLOCKS:
     RESPONSES_DIR.mkdir(parents=True, exist_ok=True)
     POSTED_DIR.mkdir(parents=True, exist_ok=True)
+
+def _strip_metering_events(data: bytes) -> bytes:
+    """
+    Parse an AWS Event Stream binary blob and drop any frames whose
+    :event-type header is 'metering' or 'contextUsage'.
+    All other frames are re-emitted byte-for-byte (CRCs intact).
+
+    Frame layout:
+      [4] total_length  [4] headers_length  [4] prelude_crc
+      [headers_length] headers
+      [total_length - headers_length - 16] payload
+      [4] message_crc
+
+    Header entry layout:
+      [1] name_length  [name_length] name  [1] type
+      [2] value_length  [value_length] value
+    """
+    out = bytearray()
+    pos = 0
+    while pos < len(data):
+        if pos + 12 > len(data):
+            out += data[pos:]          # incomplete prelude — pass through
+            break
+        total_len     = int.from_bytes(data[pos:pos+4],   'big')
+        headers_len   = int.from_bytes(data[pos+4:pos+8], 'big')
+        if total_len < 16 or pos + total_len > len(data):
+            out += data[pos:]          # malformed / incomplete frame — pass through
+            break
+        frame       = data[pos:pos + total_len]
+        headers_raw = frame[12:12 + headers_len]
+
+        # Parse headers to find :event-type value
+        event_type = None
+        h = 0
+        while h < len(headers_raw):
+            if h + 1 > len(headers_raw): break
+            name_len = headers_raw[h]; h += 1
+            if h + name_len > len(headers_raw): break
+            name = headers_raw[h:h + name_len].decode('utf-8', errors='replace'); h += name_len
+            if h + 1 > len(headers_raw): break
+            h += 1  # type byte (7 = string)
+            if h + 2 > len(headers_raw): break
+            val_len = int.from_bytes(headers_raw[h:h+2], 'big'); h += 2
+            if h + val_len > len(headers_raw): break
+            val = headers_raw[h:h + val_len].decode('utf-8', errors='replace'); h += val_len
+            if name == ':event-type':
+                event_type = val
+                break
+
+        if event_type not in ('metering', 'contextUsage'):
+            out += frame
+
+        pos += total_len
+    return bytes(out)
+
 
 class KiroInterceptor:
     def __init__(self):
@@ -242,8 +351,14 @@ class KiroInterceptor:
         self.pending_simple_task = None  # Store pending simple-task request
         self.simple_task_lock = threading.Lock()  # Lock for simple-task handling
         self.last_real_model = None  # Track last non-simple-task model
-        self.block_aws_traffic = False  # Block all AWS traffic when using custom models
+        # Start blocking if config says so (good for custom-only setups);
+        # state flips automatically on first generateAssistantResponse
+        self.block_aws_traffic = CONFIG.get('kiro_endpoint.start_blocking', False) if CONFIG else False
         self.tool_call_cache: Dict[str, Any] = {}  # toolUseId -> {name, arguments}; persists across requests
+        self._kiro_models_cache: list = []  # Cached Kiro model entries from last ListAvailableModels response
+        self._context_window_cache: Dict[str, int] = {}  # model_id -> context_window learned from API responses
+        self._custom_routed_once = False  # True after first custom model request — blocks first-switch parallel
+        self._model_list_dirty = False    # Set True by config watcher to force rebuild on next ListAvailableModels
     
     def __del__(self):
         """Cleanup and print usage summary on shutdown"""
@@ -259,33 +374,126 @@ class KiroInterceptor:
             except Exception as e:
                 print(f"{Fore.YELLOW}[Warning] Failed to print usage summary: {e}{Style.RESET_ALL}")
 
+    def _build_model_list(self) -> list:
+        """
+        Build the authoritative model list:
+          1. Kiro AWS models first (only if _kiro_models_cache is populated)
+          2. Custom provider models from config
+          3. Dummy test models from devtools/dummy_models.json (debug mode only)
+             — dummy entries can override existing entries by modelId
+        """
+        default_template = {
+            'promptCaching': {'maximumCacheCheckpointsPerRequest': 4,
+                              'minimumTokensPerCacheCheckpoint': 1024,
+                              'supportsPromptCaching': True},
+            'tokenLimits': {'maxInputTokens': 200000, 'maxOutputTokens': None}
+        }
+        aws_template = self._kiro_models_cache[0] if self._kiro_models_cache else default_template
+        models = []
+
+        # 1. Kiro passthrough models — only if we received them from AWS
+        for m in self._kiro_models_cache:
+            mid = m.get('modelId')
+            if mid:
+                self.kiro_model_ids.add(mid)
+            models.append(m)
+
+        # 2. Custom provider models from config
+        for mi in (CONFIG.get_all_models() if CONFIG else []):
+            if mi['provider'] == 'kiro':
+                continue
+            mid = mi['name']
+            self.custom_model_ids.add(mid)
+            models.append({
+                'modelId': mid,
+                'modelName': mi.get('display_name') or mid,
+                'description': mi.get('description', ''),
+                'promptCaching': aws_template.get('promptCaching', default_template['promptCaching']),
+                'rateMultiplier': None,
+                'rateUnit': None,
+                'supportedInputTypes': ['TEXT', 'IMAGE'],
+                'tokenLimits': {
+                    'maxInputTokens': (
+                        self._context_window_cache.get(mid)
+                        or mi.get('context_window')
+                        or aws_template.get('tokenLimits', default_template['tokenLimits']).get('maxInputTokens', 200000)
+                    ),
+                    'maxOutputTokens': mi.get('max_tokens', None)
+                }
+            })
+
+        # 3. Dummy test models (debug mode only) — support override by modelId
+        if DEBUG_MODE_ENABLED:
+            dummy_file = KIROPIPE_DIR / 'devtools' / 'dummy_models.json'
+            if dummy_file.exists():
+                try:
+                    dummy_data = json.loads(dummy_file.read_text())
+                    valid_fields = {
+                        'modelId', 'modelName', 'description', 'promptCaching',
+                        'rateMultiplier', 'rateUnit', 'supportedInputTypes', 'tokenLimits'
+                    }
+                    for dummy in dummy_data.get('models', []):
+                        if 'modelId' not in dummy or 'modelName' not in dummy:
+                            print(f"{Fore.YELLOW}[DUMMY] Missing required fields, skipping{Style.RESET_ALL}")
+                            continue
+                        # Strip unknown fields
+                        cleaned = {k: v for k, v in dummy.items() if k in valid_fields}
+                        stripped = [k for k in dummy if k not in valid_fields]
+                        if stripped:
+                            print(f"{Fore.YELLOW}[DUMMY] Stripped unknown fields from {cleaned['modelId']}: {stripped}{Style.RESET_ALL}")
+                        mid = cleaned['modelId']
+                        # Override existing entry if same modelId, otherwise append
+                        existing = next((i for i, m in enumerate(models) if m.get('modelId') == mid), None)
+                        if existing is not None:
+                            was_kiro = mid in self.kiro_model_ids
+                            models[existing] = cleaned
+                            label = 'Kiro' if was_kiro else 'custom'
+                            print(f"{Fore.MAGENTA}[DUMMY OVERRIDE]{Style.RESET_ALL} Replaced {label} model: {mid}")
+                            if not was_kiro:
+                                self.custom_model_ids.add(mid)
+                        else:
+                            models.append(cleaned)
+                            self.custom_model_ids.add(mid)
+                            print(f"{Fore.MAGENTA}[DUMMY ADD]{Style.RESET_ALL} Added test model: {mid}")
+                    print(f"{Fore.CYAN}[DUMMY] Loaded {len(dummy_data.get('models', []))} test model(s){Style.RESET_ALL}")
+                except json.JSONDecodeError:
+                    print(f"{Fore.YELLOW}[DUMMY] dummy_models.json is invalid JSON{Style.RESET_ALL}")
+                except Exception as _e:
+                    print(f"{Fore.YELLOW}[DUMMY] Error loading: {_e}{Style.RESET_ALL}")
+
+        return models
+
     def request(self, flow: http.HTTPFlow) -> None:
         """Intercept all requests"""
         self.request_count += 1
         
-        # Block telemetry/metrics when using custom models (global state)
-        # Note: generateAssistantResponse is NOT blocked here - it's routed based on the model in the request
-        if self.block_aws_traffic and 'telemetry' in flow.request.pretty_host:
-            if DEBUG_MODE_ENABLED:
-                print(f"\n{Fore.RED}[BLOCKED TELEMETRY] Custom model active{Style.RESET_ALL}")
-                print(f"  {Fore.CYAN}Path:{Style.RESET_ALL} {flow.request.path}")
-            flow.response = http.Response.make(
-                200,
-                b'{"status":"ok"}',
-                {"Content-Type": "application/json"}
+        # Block OTel telemetry endpoints (/v1/metrics, /v1/traces) only.
+        # block_telemetry_always: block these even on Kiro passthrough, but ONLY
+        #   when ALLOW_KIRO_MODELS=True (passthrough enabled). When False, follows
+        #   block_aws_traffic state (adaptive — blocked with custom, allowed with Kiro).
+        # ALLOW_TELEMETRY=False: always block, regardless of model state.
+        _is_otel = ('telemetry' in flow.request.pretty_host and
+                    flow.request.path in ('/v1/metrics', '/v1/traces'))
+        if _is_otel:
+            _bta = CONFIG.get('kiro_endpoint.block_telemetry_always', False) if CONFIG else False
+            _should_block_otel = (
+                not ALLOW_TELEMETRY                       # config: always block
+                or self.block_aws_traffic                 # adaptive: custom model active
+                or (_bta and ALLOW_KIRO_MODELS)           # always-block when passthrough enabled
             )
-            return
-        
-        # Block telemetry if not allowed by config
-        if not ALLOW_TELEMETRY and 'telemetry' in flow.request.pretty_host:
-            if DEBUG_MODE_ENABLED:
-                print(f"\n{Fore.RED} [BLOCKED TELEMETRY]{Style.RESET_ALL} {Style.DIM}{flow.request.pretty_url}{Style.RESET_ALL}")
-            flow.response = http.Response.make(
-                200,
-                b'{"status":"ok"}',
-                {"Content-Type": "application/json"}
-            )
-            return
+            if _should_block_otel:
+                if DEBUG_MODE_ENABLED:
+                    reason = ('config=false' if not ALLOW_TELEMETRY
+                              else 'custom-model' if self.block_aws_traffic
+                              else 'always-block+passthrough')
+                    print(f"\n{Fore.RED}[BLOCKED TELEMETRY]{Style.RESET_ALL} {reason} — {flow.request.path}")
+                flow.response = http.Response.make(
+                    200, b'{"status":"ok"}',
+                    {"Content-Type": "application/json"}
+                )
+                return
+        # Non-OTel telemetry host requests (e.g. other paths) fall through to
+        # other handlers or the strict whitelist
         
         # Block update checks if not allowed (GET requests)
         if not ALLOW_UPDATES and 'metadata-win32' in flow.request.path:
@@ -329,32 +537,179 @@ class KiroInterceptor:
         # Dynamic usage limits blocking (block when custom models are available OR within first 5 seconds)
         # Note: This is called before model selection, so we check if ANY custom models exist
         if 'getUsageLimits' in flow.request.path:
-            elapsed_time = time.time() - self.start_time
-            within_startup_window = elapsed_time < 5.0
-            should_block = len(self.custom_model_ids) > 0 or within_startup_window
-            
-            if DEBUG_MODE_ENABLED:
-                print(f"\n{Fore.CYAN}[USAGE LIMITS CHECK]{Style.RESET_ALL}")
-                print(f"  Elapsed time: {elapsed_time:.2f}s")
-                print(f"  Within startup window (5s): {within_startup_window}")
-                print(f"  Custom model IDs: {self.custom_model_ids}")
-                print(f"  Count: {len(self.custom_model_ids)}")
-                print(f"  Should block: {should_block}")
-            
-            if should_block:
+            # Block when custom model active. Return empty limits with no subscriptionInfo
+            # so Kiro suppresses the credits/usage bar without breaking account state.
+            if self.block_aws_traffic:
                 if DEBUG_MODE_ENABLED:
-                    print(f"{Fore.RED} [BLOCKED USAGE LIMITS]{Style.RESET_ALL} {Style.DIM}{flow.request.pretty_url}{Style.RESET_ALL}")
-                    if within_startup_window:
-                        print(f"  {Fore.CYAN}Reason:{Style.RESET_ALL} Within startup window ({elapsed_time:.2f}s / 5.0s)")
-                    else:
-                        print(f"  {Fore.CYAN}Reason:{Style.RESET_ALL} Custom models available ({len(self.custom_model_ids)} models)")
+                    print(f"{Fore.RED} [BLOCKED USAGE LIMITS]{Style.RESET_ALL} custom model active")
                 flow.response = http.Response.make(
-                    200,
-                    b'{"limits":[],"subscriptionInfo":{"type":"FREE"}}',
+                    200, b'{"limits":[]}',
                     {"Content-Type": "application/json"}
                 )
                 return
         
+        # ── fake_login: treat as full block (no AWS communication at all) ─────
+        # When fake_login is enabled, override block_aws_traffic and completions
+        # so zero AWS traffic is sent, regardless of other config settings.
+        _fake_login_active = CONFIG.get('kiro_endpoint.auth_fake_login', False) if CONFIG else False
+        if _fake_login_active:
+            # Block AWS/kiro.dev traffic that would actually reach their servers.
+            # Exempt endpoints that we intercept and re-route ourselves — they never
+            # reach AWS regardless, so blocking them here just breaks functionality.
+            _is_routed_locally = (
+                'generateAssistantResponse' in flow.request.path  # re-routed to custom provider
+                or 'generatecompletions' in flow.request.path      # handled by completions logic
+                or 'ListAvailableModels' in flow.request.path      # served from cache/config
+                or 'auth.desktop.kiro.dev' in flow.request.pretty_host  # fake login handler
+            )
+            if not _is_routed_locally and (
+                'amazonaws.com' in flow.request.pretty_host
+                or 'kiro.dev' in flow.request.pretty_host
+            ):
+                if DEBUG_MODE_ENABLED:
+                    print(f"{Fore.RED}[FAKE LOGIN BLOCK]{Style.RESET_ALL} {flow.request.path}")
+                flow.response = http.Response.make(
+                    200, b'{"status":"ok"}',
+                    {'Content-Type': 'application/json'}
+                )
+                return
+
+        # ── Block unexpected AWS requests when custom model is active ─────────
+        # Any amazonaws.com request that isn't explicitly handled above
+        # (generateAssistantResponse is handled separately below, completions
+        # and ListAvailableModels above) should be suppressed to prevent
+        # metering/credits events leaking back to Kiro.
+        if self.block_aws_traffic and 'amazonaws.com' in flow.request.pretty_host:
+            _aws_path = flow.request.path
+            _allowed_aws = (
+                'generateAssistantResponse' in _aws_path
+                or 'ListAvailableModels' in _aws_path
+                or 'generatecompletions' in _aws_path
+            )
+            if not _allowed_aws:
+                if DEBUG_MODE_ENABLED:
+                    print(f"{Fore.RED}[BLOCKED AWS]{Style.RESET_ALL} {_aws_path} (custom model active)")
+                flow.response = http.Response.make(
+                    200, b'{"status":"ok"}',
+                    {'Content-Type': 'application/json'}
+                )
+                return
+
+        # ── Auth interception (fake_login) ──────────────────────────────────
+        _fake_login = CONFIG.get('kiro_endpoint.auth_fake_login', False) if CONFIG else False
+        if _fake_login and 'auth.desktop.kiro.dev' in flow.request.pretty_host:
+            if '/oauth/token' in flow.request.path:
+                import json as _json
+                fake_token = {
+                    'accessToken':  'fake-access-token-kiropipe-bypass',
+                    'expiresIn':    315360000,
+                    'profileArn':   'arn:aws:codewhisperer:us-east-1:000000000000:profile/KIROPIPE0',
+                    'refreshToken': 'fake-refresh-token-kiropipe-bypass'
+                }
+                body = _json.dumps(fake_token).encode('utf-8')
+                flow.response = http.Response.make(
+                    200, body,
+                    {'Content-Type': 'application/json', 'content-length': str(len(body))}
+                )
+                if DEBUG_MODE_ENABLED:
+                    print(f"{Fore.GREEN}[FAKE LOGIN]{Style.RESET_ALL} Synthetic token returned")
+                return
+            elif '/logout' in flow.request.path:
+                flow.response = http.Response.make(
+                    200, b'{"message":"ok"}', {'Content-Type': 'application/json'}
+                )
+                if DEBUG_MODE_ENABLED:
+                    print(f"{Fore.CYAN}[FAKE LOGOUT]{Style.RESET_ALL} Suppressed")
+                return
+
+        # ── /generatecompletions (inline autocomplete) ───────────────────────
+        # Config 'completions.mode':
+        #   'passthrough'  → always forward to AWS, regardless of model state
+        #   None/null      → block when custom model active, passthrough for Kiro
+        #   'current'      → use self.last_real_model's provider for completions
+        #   '<model_name>' → always use that specific configured model
+        if 'generatecompletions' in flow.request.path:
+            _comp_cfg = CONFIG.get('completions', None) if CONFIG else None
+            # Normalise: treat empty string same as None
+            if _comp_cfg == '':
+                _comp_cfg = None
+
+            if _comp_cfg == 'passthrough':
+                pass  # Fall through to AWS regardless of model state
+            elif _comp_cfg is None:
+                # Default: block when custom model active, pass through for Kiro
+                if self.block_aws_traffic:
+                    flow.response = http.Response.make(
+                        200,
+                        b'{"completions":[],"modelId":null,"nextToken":"","predictions":[]}',
+                        {'Content-Type': 'application/json'}
+                    )
+                    if DEBUG_MODE_ENABLED:
+                        print(f"{Fore.RED}[COMPLETIONS BLOCKED]{Style.RESET_ALL} (null mode, custom model active)")
+                    return
+                # else: Kiro model active — fall through to AWS
+            else:
+                # Named model ('current' or a specific model_id) — route via its provider
+                _target = (self.last_real_model if _comp_cfg == 'current' else _comp_cfg)
+                _comp_model_info = CONFIG.get_model_info(_target) if _target else None
+                if _comp_model_info:
+                    try:
+                        import httpx as _httpx, json as _json
+                        _prov_name   = _comp_model_info['provider']
+                        _prov_cfg    = CONFIG.get_provider_config(_prov_name) or {}
+                        _comp_base   = _prov_cfg.get('api_base', '')
+                        _comp_key    = _prov_cfg.get('api_key', '')
+                        _comp_mdl    = _target
+                        req_body     = _json.loads(flow.request.text)
+                        left  = req_body.get('fileContext', {}).get('leftFileContent', '')
+                        right = req_body.get('fileContext', {}).get('rightFileContent', '')
+                        # FIM-style chat prompt — works with any instruction-following model
+                        messages = [
+                            {'role': 'system', 'content':
+                             'You are a code completion assistant. '
+                             'Return ONLY the code to insert at <CURSOR>. No explanation, no markdown.'},
+                            {'role': 'user', 'content': f"{left}<CURSOR>{right}"}
+                        ]
+                        payload = {'model': _comp_mdl, 'messages': messages,
+                                   'max_tokens': 128, 'temperature': 0, 'stream': False}
+                        resp = _httpx.post(
+                            f"{_comp_base}/chat/completions",
+                            json=payload,
+                            headers={'Authorization': f'Bearer {_comp_key}',
+                                     'content-type': 'application/json'},
+                            timeout=10.0
+                        )
+                        completion_text = ''
+                        if resp.status_code == 200:
+                            completion_text = (resp.json().get('choices', [{}])[0]
+                                               .get('message', {}).get('content', ''))
+                        result = _json.dumps({
+                            'completions': [{'content': completion_text,
+                                             'mostRelevantMissingImports': [], 'references': []}],
+                            'modelId': None, 'nextToken': '', 'predictions': []
+                        }).encode('utf-8')
+                        flow.response = http.Response.make(
+                            200, result, {'Content-Type': 'application/json'}
+                        )
+                        if DEBUG_MODE_ENABLED:
+                            print(f"{Fore.CYAN}[COMPLETIONS]{Style.RESET_ALL} Served via {_prov_name}/{_comp_mdl}")
+                    except Exception as _e:
+                        if DEBUG_MODE_ENABLED:
+                            print(f"{Fore.RED}[COMPLETIONS ERROR]{Style.RESET_ALL} {_e}")
+                        flow.response = http.Response.make(
+                            200,
+                            b'{"completions":[],"modelId":null,"nextToken":"","predictions":[]}',
+                            {'Content-Type': 'application/json'}
+                        )
+                else:
+                    # Unknown model — block
+                    flow.response = http.Response.make(
+                        200,
+                        b'{"completions":[],"modelId":null,"nextToken":"","predictions":[]}',
+                        {'Content-Type': 'application/json'}
+                    )
+                return
+
         # Block Kiro models if not allowed
         if not ALLOW_KIRO_MODELS and 'generateAssistantResponse' in flow.request.path:
             # Check if we have any custom providers enabled
@@ -388,6 +743,30 @@ class KiroInterceptor:
             )
             return
         
+        # Model list strategy:
+        #  - Warm cache: Kiro AWS models known → serve Kiro-first + config immediately
+        #  - Cold start + AWS reachable: let request through; response() builds final list
+        #  - Cold start + AWS blocked (fake_login etc.): serve config-only immediately
+        if 'ListAvailableModels' in flow.request.path or self._model_list_dirty:
+            self._model_list_dirty = False
+            aws_blocked = CONFIG.get('kiro_endpoint.auth_fake_login', False) if CONFIG else False
+            cold_start  = not self._kiro_models_cache and ALLOW_KIRO_MODELS
+
+            if cold_start and not aws_blocked and 'ListAvailableModels' in flow.request.path:
+                # Let request reach AWS; response() will build and send the definitive list
+                pass
+            else:
+                # Either warm (cache populated) or AWS blocked → serve now
+                flow.response = http.Response.make(
+                    200,
+                    json.dumps({'models': self._build_model_list()}).encode('utf-8'),
+                    {'Content-Type': 'application/json'}
+                )
+                if DEBUG_MODE_ENABLED:
+                    src = 'warm-cache' if self._kiro_models_cache else 'config-only (AWS blocked)'
+                    print(f"{Fore.CYAN}[MODEL LIST]{Style.RESET_ALL} Served from {src}")
+                return
+
         # Detect model selection and route to custom provider if needed
         if 'generateAssistantResponse' in flow.request.path:
             if DEBUG_MODE_ENABLED:
@@ -466,23 +845,20 @@ class KiroInterceptor:
                         if is_passthrough:
                             if DEBUG_MODE_ENABLED:
                                 print(f"{Fore.GREEN}[SIMPLE-TASK] Next model is passthrough, allowing simple-task through{Style.RESET_ALL}")
-                            
+
                             # Clear the pending request - it will go through to AWS naturally
-                            # (we don't set a response, so mitmproxy will forward it)
                             self.pending_simple_task = None
-                            
+                            self._custom_routed_once = False  # User explicitly chose Kiro
+
                             # Now continue processing this request normally
                         else:
                             if DEBUG_MODE_ENABLED:
                                 print(f"{Fore.YELLOW}[SIMPLE-TASK] Next model is custom, blocking simple-task{Style.RESET_ALL}")
                             
                             # Block the pending simple-task by sending a mock response
-                            from engine.event_stream_encoder import encode_text_chunk, encode_metering
-                            
-                            mock_response = b''.join([
-                                encode_text_chunk("proceed"),
-                                encode_metering(0.0)
-                            ])
+                            from engine.event_stream_encoder import encode_text_chunk
+
+                            mock_response = encode_text_chunk("proceed")
                             
                             pending_flow.response = http.Response.make(
                                 200,
@@ -524,6 +900,7 @@ class KiroInterceptor:
                 else:
                     # Custom model - block telemetry
                     self.block_aws_traffic = True
+                    self._custom_routed_once = True
                     if not old_block_state and DEBUG_MODE_ENABLED:
                         print(f"{Fore.YELLOW}[TELEMETRY] Blocking (custom model){Style.RESET_ALL}")
                 
@@ -535,9 +912,23 @@ class KiroInterceptor:
                 # If it's a Kiro model, let it pass through to AWS
                 # If it's a custom model, route to custom provider below
                 if is_kiro_request:
+                    # Block parallel if: was in custom mode (old_block_state) OR
+                    # this is the first-switch where a custom model was just routed
+                    # (_custom_routed_once covers the race on the very first switch).
+                    if old_block_state or self._custom_routed_once:
+                        # A custom model was active — suppress this parallel Kiro request
+                        # so it never reaches AWS and returns metering/credits events.
+                        if DEBUG_MODE_ENABLED:
+                            print(f"{Fore.RED}[BLOCKED PARALLEL KIRO]{Style.RESET_ALL} Custom model was active, suppressing Kiro chat request")
+                        flow.response = http.Response.make(
+                            200, b'',
+                            {'Content-Type': 'application/vnd.amazon.eventstream',
+                             'x-amzn-RequestId': 'blocked-kiro-parallel'}
+                        )
+                        return
                     if DEBUG_MODE_ENABLED:
                         print(f"{Fore.GREEN}[ROUTING] Passthrough to AWS Q{Style.RESET_ALL}")
-                    # Don't set a response - let it pass through to AWS naturally
+                    # Passthrough — let it reach AWS naturally
                     return
                 
                 # At this point, we know it's a custom model request
@@ -587,14 +978,6 @@ class KiroInterceptor:
                         if DEBUG_MODE_ENABLED:
                             print(f"{Fore.YELLOW}[ROUTING] Provider: {provider_name}, Type: {provider_type}{Style.RESET_ALL}")
 
-                        # Resolve the model name to send in the API request.
-                        # 'api_model' in the model config lets you separate the internal
-                        # routing name (e.g. 'qwen3-coder-flash') from the string the
-                        # upstream API actually expects (e.g. 'qwen/qwen3-coder-flash').
-                        api_model_name = model_info['model'].get('api_model', self.current_model)
-                        if DEBUG_MODE_ENABLED and api_model_name != self.current_model:
-                            print(f"{Fore.CYAN}[MODEL] Remapped '{self.current_model}' -> '{api_model_name}' for API request{Style.RESET_ALL}")
-
                         if provider_type == 'anthropic':
                             # Import request translator
                             from engine.request_translator import translate_to_anthropic
@@ -609,7 +992,7 @@ class KiroInterceptor:
                             # Use full request translation (includes history, tools, tool results)
                             anthropic_request = translate_to_anthropic(
                                 aws_body,
-                                model=api_model_name,
+                                model=self.current_model,
                                 max_tokens=4096,
                                 tool_call_cache=self.tool_call_cache
                             )
@@ -708,7 +1091,11 @@ class KiroInterceptor:
                                             anthropic_event_generator(),
                                             include_usage=False,
                                             usage_callback=usage_callback,
-                                            tool_calls_out=tool_calls_out
+                                            tool_calls_out=tool_calls_out,
+                                            context_window=self._context_window_cache.get(
+                                                self.current_model,
+                                                (CONFIG.get_model_info(self.current_model) or {}).get('context_window', 200000) if CONFIG else 200000
+                                            )
                                         ))
                                         self.tool_call_cache.update(tool_calls_out)
 
@@ -748,7 +1135,7 @@ class KiroInterceptor:
                             # Use full request translation (includes history, tools, tool results)
                             openai_request = translate_to_openai(
                                 aws_body,
-                                model=api_model_name,
+                                model=self.current_model,
                                 max_tokens=4096,
                                 tool_call_cache=self.tool_call_cache
                             )
@@ -818,6 +1205,15 @@ class KiroInterceptor:
                                             )
                                             return
                                         
+                                        # Learn context window from response headers
+                                        _ctx_hdr = (response.headers.get('x-ratelimit-limit-tokens')
+                                                    or response.headers.get('x-ratelimit-limit-context'))
+                                        if _ctx_hdr:
+                                            try:
+                                                self._context_window_cache[self.current_model] = int(_ctx_hdr)
+                                            except (ValueError, TypeError):
+                                                pass
+
                                         # 200 OK — consume and translate the stream.
                                         # Handles three common response formats:
                                         #  a) Standard SSE:  'data: {...}\n'
@@ -895,10 +1291,14 @@ class KiroInterceptor:
                                             openai_event_generator(),
                                             include_usage=False,
                                             usage_callback=usage_callback,
-                                            tool_calls_out=tool_calls_out
+                                            tool_calls_out=tool_calls_out,
+                                            context_window=self._context_window_cache.get(
+                                                self.current_model,
+                                                (CONFIG.get_model_info(self.current_model) or {}).get('context_window', 200000) if CONFIG else 200000
+                                            )
                                         ))
                                         self.tool_call_cache.update(tool_calls_out)
-                                        
+
                                         if DEBUG_MODE_ENABLED:
                                             print(f"{Fore.GREEN} [OPENAI]{Style.RESET_ALL} Translated to AWS format: {Fore.YELLOW}{len(aws_binary)} bytes{Style.RESET_ALL}")
                                         
@@ -933,7 +1333,7 @@ class KiroInterceptor:
                             # Translate to OpenAI format using full translation
                             openai_request = translate_to_openai(
                                 aws_body,
-                                model=api_model_name,
+                                model=self.current_model,
                                 max_tokens=4096,
                                 tool_call_cache=self.tool_call_cache
                             )
@@ -950,7 +1350,7 @@ class KiroInterceptor:
                             # Define API call function for retry handler
                             def make_litellm_call():
                                 return completion(
-                                    model=api_model_name,
+                                    model=self.current_model,
                                     messages=openai_request['messages'],
                                     tools=openai_request.get('tools'),
                                     max_tokens=openai_request.get('max_tokens', 4096),
@@ -993,9 +1393,13 @@ class KiroInterceptor:
                             tool_calls_out: Dict[str, Any] = {}
                             aws_binary = b''.join(translate_openai_stream(
                                 litellm_event_generator(),
-                                include_usage=False,  # Don't send metering events for custom models
+                                include_usage=False,
                                 usage_callback=usage_callback,
-                                tool_calls_out=tool_calls_out
+                                tool_calls_out=tool_calls_out,
+                                context_window=self._context_window_cache.get(
+                                    self.current_model,
+                                    (CONFIG.get_model_info(self.current_model) or {}).get('context_window', 200000) if CONFIG else 200000
+                                )
                             ))
                             # Cache any tool calls streamed out for the next round-trip.
                             self.tool_call_cache.update(tool_calls_out)
@@ -1166,171 +1570,78 @@ class KiroInterceptor:
             if DEBUG_MODE_ENABLED:
                 print(f"{Fore.BLUE}{'='*60}{Style.RESET_ALL}\n")
 
+        # ── Strict whitelist: block unhandled amazonaws/kiro.dev paths ────────
+        _strict = CONFIG.get('kiro_endpoint.strict_whitelist', False) if CONFIG else False
+        _is_aws_or_kiro = (
+            'amazonaws.com' in flow.request.pretty_host
+            or 'kiro.dev' in flow.request.pretty_host
+        )
+        # Paths we intentionally let pass through to AWS (don't whitelist-block)
+        _intentional_passthrough = (
+            'ListAvailableModels' in flow.request.path     # cold-start model fetch
+            or 'generatecompletions' in flow.request.path  # completions in passthrough mode
+            or 'getUsageLimits' in flow.request.path       # handled above
+            or 'auth.desktop.kiro.dev' in flow.request.pretty_host  # auth flows
+        )
+        if _strict and flow.response is None and _is_aws_or_kiro and not _intentional_passthrough:
+            if DEBUG_MODE_ENABLED:
+                print(f"{Fore.RED}[STRICT WHITELIST BLOCKED]{Style.RESET_ALL} {flow.request.path}")
+            flow.response = http.Response.make(
+                200, b'{"status":"ok"}', {'Content-Type': 'application/json'}
+            )
+
+        # ── Catch-all: block any generateAssistantResponse that hasn't been
+        # handled by our routing and would fall through to AWS while a custom
+        # model is active. Legitimate custom-model requests set flow.response
+        # before returning; legitimate Kiro passthroughs return early at the
+        # routing block. Only unhandled parallel/background requests reach here.
+        if (
+            self.block_aws_traffic
+            and flow.response is None
+            and 'generateAssistantResponse' in flow.request.path
+        ):
+            if DEBUG_MODE_ENABLED:
+                print(f"{Fore.RED}[BLOCKED PARALLEL]{Style.RESET_ALL} Suppressing unhandled generateAssistantResponse (custom model active)")
+            flow.response = http.Response.make(
+                200, b'',
+                {
+                    'Content-Type': 'application/vnd.amazon.eventstream',
+                    'x-amzn-RequestId': 'blocked-parallel-request'
+                }
+            )
+
     def response(self, flow: http.HTTPFlow) -> None:
             """Intercept all responses"""
 
-            # Inject custom models into ListAvailableModels response
+            # On cold-start, AWS sends its model list here. Cache the Kiro models,
+            # then replace the response with our definitive list (Kiro first + config).
             if 'ListAvailableModels' in flow.request.path and flow.response.status_code == 200:
                 try:
-                    response_data = json.loads(flow.response.text)
+                    aws_data = json.loads(flow.response.text)
+                    aws_models = aws_data.get('models', [])
+
+                    # Normalise rateUnit and cache all Kiro-native entries
+                    for m in aws_models:
+                        if m.get('rateUnit') == 'Credit':
+                            m['rateUnit'] = 'Kiro Credits'
+                        mid = m.get('modelId')
+                        if mid:
+                            self.kiro_model_ids.add(mid)
+                    self._kiro_models_cache = aws_models  # full list, Kiro order preserved
+
+                    # Build and send the definitive combined list
+                    combined = self._build_model_list()
+                    combined_json = json.dumps({'models': combined}).encode('utf-8')
+                    flow.response.content = combined_json
+                    flow.response.headers['content-length'] = str(len(combined_json))
 
                     if DEBUG_MODE_ENABLED:
-                        print(f"\n{Fore.CYAN}{'='*60}")
-                        print(f"{Style.BRIGHT} [INJECTING CUSTOM MODELS]{Style.RESET_ALL}")
-                        print(f"{Fore.CYAN}{'='*60}{Style.RESET_ALL}")
-                        print(f"{Fore.YELLOW}Original Kiro models: {len(response_data.get('models', []))}{Style.RESET_ALL}")
-
-                    # Track Kiro's original model IDs and modify their rateUnit
-                    if 'models' in response_data:
-                        for model in response_data['models']:
-                            self.kiro_model_ids.add(model.get('modelId'))
-                            # Change Kiro's rateUnit from "Credit" to "Kiro Credits"
-                            if model.get('rateUnit') == 'Credit':
-                                model['rateUnit'] = 'Kiro Credits'
-
-                        if DEBUG_MODE_ENABLED:
-                            print(f"{Fore.YELLOW}Tracked Kiro model IDs: {len(self.kiro_model_ids)}{Style.RESET_ALL}")
-                            print(f"{Fore.YELLOW}Modified Kiro models rateUnit to 'Kiro Credits'{Style.RESET_ALL}")
-
-                        # Get template from first Kiro model
-                        template_model = response_data['models'][0] if response_data['models'] else {}
-
-                        custom_models_added = []
-
-                        # 1. Inject models from config (using get_all_models which handles sub-providers)
-                        all_models = CONFIG.get_all_models()
-                        
-                        for model_info in all_models:
-                            provider_name = model_info['provider']
-                            
-                            # Skip Kiro's own models
-                            if provider_name == 'kiro':
-                                continue
-                            
-                            model_id = model_info['name']
-                            # Use display_name if available, otherwise first alias or name
-                            model_name = model_info.get('display_name') or (model_info['aliases'][0] if model_info['aliases'] else model_id)
-                            
-                            # Determine rate unit based on provider and sub-provider
-                            if model_info.get('sub_provider'):
-                                rate_unit = model_info['sub_provider'].upper()  # e.g., "GROQ", "OPENAI", "OLLAMA"
-                            else:
-                                rate_unit = provider_name.upper()  # e.g., "ANTHROPIC", "LITELLM"
-
-                            custom_model = {
-                                "modelId": model_id,
-                                "modelName": model_name,
-                                "description": model_info['description'],
-                                "promptCaching": template_model.get('promptCaching', {
-                                    "maximumCacheCheckpointsPerRequest": 4,
-                                    "minimumTokensPerCacheCheckpoint": 1024,
-                                    "supportsPromptCaching": True
-                                }),
-                                "rateMultiplier": None,  # null for config models
-                                "rateUnit": rate_unit,
-                                "supportedInputTypes": ["TEXT", "IMAGE"],
-                                "tokenLimits": template_model.get('tokenLimits', {
-                                    "maxInputTokens": 200000,
-                                    "maxOutputTokens": None
-                                })
-                            }
-
-                            response_data['models'].append(custom_model)
-                            self.custom_model_ids.add(model_id)
-                            custom_models_added.append(model_name)
-
-                        # 2. Inject dummy test models (debug mode only)
-                        if DEBUG_MODE_ENABLED:
-                            dummy_file = KIROPIPE_DIR / 'devtools' / 'dummy_models.json'
-                            if dummy_file.exists():
-                                try:
-                                    dummy_data = json.loads(dummy_file.read_text())
-                                    dummy_models = dummy_data.get('models', [])
-
-                                    # Valid fields for Kiro model schema
-                                    valid_fields = {
-                                        'modelId', 'modelName', 'description', 'promptCaching',
-                                        'rateMultiplier', 'rateUnit', 'supportedInputTypes', 'tokenLimits'
-                                    }
-
-                                    for dummy_model in dummy_models:
-                                        # Validate required fields
-                                        if 'modelId' in dummy_model and 'modelName' in dummy_model:
-                                            model_id = dummy_model['modelId']
-                                            
-                                            # Strip extra fields that aren't part of Kiro's schema
-                                            cleaned_model = {}
-                                            stripped_fields = []
-                                            for key, value in dummy_model.items():
-                                                if key in valid_fields:
-                                                    cleaned_model[key] = value
-                                                else:
-                                                    stripped_fields.append(key)
-                                            
-                                            if stripped_fields:
-                                                print(f"{Fore.YELLOW}[STRIP] Removed non-schema fields from {model_id}: {', '.join(stripped_fields)}{Style.RESET_ALL}")
-                                            
-                                            # Check if this modelId already exists (override feature)
-                                            existing_index = None
-                                            was_kiro_model = False
-                                            for i, existing_model in enumerate(response_data['models']):
-                                                if existing_model.get('modelId') == model_id:
-                                                    existing_index = i
-                                                    was_kiro_model = model_id in self.kiro_model_ids
-                                                    break
-                                            
-                                            if existing_index is not None:
-                                                # Override existing model
-                                                response_data['models'][existing_index] = cleaned_model
-                                                if was_kiro_model:
-                                                    # Keep it as a Kiro model (don't add to custom_model_ids)
-                                                    print(f"{Fore.MAGENTA}[OVERRIDE] Replaced Kiro model: {model_id} (inherits Kiro type){Style.RESET_ALL}")
-                                                else:
-                                                    # It was already a custom model, keep it that way
-                                                    print(f"{Fore.MAGENTA}[OVERRIDE] Replaced custom model: {model_id}{Style.RESET_ALL}")
-                                                custom_models_added.append(f"{cleaned_model['modelName']} (override)")
-                                            else:
-                                                # New model - add as custom
-                                                response_data['models'].append(cleaned_model)
-                                                self.custom_model_ids.add(model_id)
-                                                custom_models_added.append(cleaned_model['modelName'])
-                                        else:
-                                            print(f"{Fore.YELLOW}[WARNING] Dummy model missing required fields (modelId, modelName){Style.RESET_ALL}")
-
-                                    if dummy_models:
-                                        print(f"{Fore.CYAN}Loaded {len(dummy_models)} dummy test model(s){Style.RESET_ALL}")
-                                except json.JSONDecodeError:
-                                    print(f"{Fore.YELLOW}[WARNING] dummy_models.json exists but contains invalid JSON{Style.RESET_ALL}")
-                                except Exception as e:
-                                    print(f"{Fore.YELLOW}[WARNING] Error loading dummy models: {e}{Style.RESET_ALL}")
-
-                        # Update response
-                        if custom_models_added:
-                            if DEBUG_MODE_ENABLED:
-                                print(f"{Fore.GREEN}Injected {len(custom_models_added)} custom model(s):{Style.RESET_ALL}")
-                                for model_name in custom_models_added:
-                                    print(f"  - {Fore.CYAN}{model_name}{Style.RESET_ALL}")
-                                print(f"{Fore.YELLOW}Total models: {len(response_data['models'])}{Style.RESET_ALL}")
-
-                            modified_json = json.dumps(response_data).encode('utf-8')
-                            flow.response.content = modified_json
-                            flow.response.headers['content-length'] = str(len(modified_json))
-
-                            if DEBUG_MODE_ENABLED:
-                                print(f"{Fore.CYAN}{'='*60}{Style.RESET_ALL}\n")
-                        else:
-                            if DEBUG_MODE_ENABLED:
-                                print(f"{Fore.YELLOW}No custom models to inject{Style.RESET_ALL}")
-                                print(f"{Fore.CYAN}{'='*60}{Style.RESET_ALL}\n")
-
-                except json.JSONDecodeError:
-                    if DEBUG_MODE_ENABLED:
-                        print(f"{Fore.YELLOW}[WARNING] ListAvailableModels response is not JSON{Style.RESET_ALL}")
+                        print(f"{Fore.CYAN}[MODEL LIST]{Style.RESET_ALL} Cold-start: "
+                              f"{len(aws_models)} Kiro + {len(combined)-len(aws_models)} custom → "
+                              f"{len(combined)} total sent to client")
                 except Exception as e:
                     if DEBUG_MODE_ENABLED:
-                        print(f"{Fore.RED}[ERROR] Failed to inject models: {e}{Style.RESET_ALL}")
-                        import traceback
-                        traceback.print_exc()
+                        print(f"{Fore.RED}[MODEL LIST ERROR]{Style.RESET_ALL} {e}")
 
             if 'amazonaws.com' in flow.request.pretty_host or 'kiro.dev' in flow.request.pretty_host:
                 if DEBUG_MODE_ENABLED:
@@ -1452,6 +1763,22 @@ class KiroInterceptor:
                             if DEBUG_MODE_ENABLED:
                                 print(f"  {Fore.GREEN}Saved binary to:{Style.RESET_ALL} {filename.name}")
 
+
+                # Strip metering/contextUsage frames from any pass-through AWS
+                # event stream responses while custom models are active.
+                if (
+                    (self.block_aws_traffic or self._custom_routed_once)
+                    and 'generateAssistantResponse' in flow.request.path
+                    and flow.response.content
+                    and 'application/vnd.amazon.eventstream' in flow.response.headers.get('content-type', '')
+                ):
+                    filtered = _strip_metering_events(flow.response.content)
+                    if filtered != flow.response.content:
+                        flow.response.content = filtered
+                        flow.response.headers['content-length'] = str(len(filtered))
+                        if DEBUG_MODE_ENABLED:
+                            print(f"{Fore.CYAN}[METERING STRIPPED]{Style.RESET_ALL} Removed metering from pass-through AWS response")
+
                 if DEBUG_MODE_ENABLED:
                     print(f"{Fore.GREEN}{'='*60}{Style.RESET_ALL}\n")
 
@@ -1527,7 +1854,7 @@ def wait_for_kiro_window(timeout=10):
         try:
             # Look for Kiro.exe processes with a window
             result = subprocess.run(
-                ['powershell', '-Command', 
+                ['powershell', '-NoProfile', '-NonInteractive', '-Command',
                  'Get-Process | Where-Object {$_.ProcessName -eq "Kiro" -and $_.MainWindowTitle -ne ""} | Select-Object -ExpandProperty Id'],
                 capture_output=True, text=True, timeout=2
             )
