@@ -1,0 +1,14 @@
+{
+  "_description": "OpenAI Chat Completions SSE stream for a plain text response.",
+  "_expect": {
+    "text_chunks": ["The answer is ", "4."],
+    "input_tokens": 42,
+    "output_tokens": 8
+  },
+  "chunks": [
+    { "choices": [{ "delta": { "content": "The answer is " }, "finish_reason": null }] },
+    { "choices": [{ "delta": { "content": "4."             }, "finish_reason": null }] },
+    { "choices": [{ "delta": {},                              "finish_reason": "stop" }],
+      "usage": { "prompt_tokens": 42, "completion_tokens": 8 } }
+  ]
+}

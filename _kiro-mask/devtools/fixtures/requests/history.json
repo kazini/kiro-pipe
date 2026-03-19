@@ -1,0 +1,22 @@
+{
+  "_description": "Two-turn history followed by a new user message.",
+  "_expect": {
+    "anthropic_message_count": 3,
+    "openai_message_count": 3,
+    "has_tools": false
+  },
+  "conversationState": {
+    "conversationId": "fixture-history-001",
+    "currentMessage": {
+      "userInputMessage": {
+        "content": "And what is 5 + 5?",
+        "modelId": "claude-3-5-sonnet-20241022",
+        "origin": "HUMAN"
+      }
+    },
+    "history": [
+      { "userInputMessage": { "content": "What is 2 + 2?" } },
+      { "assistantResponseMessage": { "content": "2 + 2 equals 4." } }
+    ]
+  }
+}

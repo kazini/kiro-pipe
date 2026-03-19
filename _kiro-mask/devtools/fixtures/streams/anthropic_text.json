@@ -1,0 +1,20 @@
+{
+  "_description": "Anthropic SSE stream for a plain text response.",
+  "_expect": {
+    "text_chunks": ["The answer is ", "4."],
+    "input_tokens": 42,
+    "output_tokens": 8,
+    "event_stream_event_count": 4,
+    "event_types": ["assistantResponseEvent", "assistantResponseEvent", "meteringEvent", "contextUsageEvent"],
+	"_note": "Each text_delta produces its own frame. 2 text chunks = 2 frames."
+  },
+  "events": [
+    { "type": "message_start",       "message": { "usage": { "input_tokens": 42 } } },
+    { "type": "content_block_start", "index": 0, "content_block": { "type": "text" } },
+    { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "The answer is " } },
+    { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "4." } },
+    { "type": "content_block_stop",  "index": 0 },
+    { "type": "message_delta",       "usage": { "output_tokens": 8 } },
+    { "type": "message_stop" }
+  ]
+}

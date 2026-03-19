@@ -2,37 +2,55 @@
  * ProxyManager
  *
  * HTTPS MITM proxy via mockttp.
- * Registers rules in priority order, delegates routing decisions to TrafficRouter,
- * and delegates model injection to ModelRegistry.
  *
- * Phase 2: custom model requests return a placeholder event stream response.
- * Phase 3: replace placeholder with AWSQAdapter.handle().
+ * Critical mockttp constraint:
+ *   thenCallback() callbacks MUST return a response object.
+ *   Returning undefined throws: "Cannot read properties of undefined (reading 'json')"
+ *   There is no 'passthrough' return in thenCallback.
+ *
+ * Solution for generateAssistantResponse:
+ *   We handle ALL requests to this endpoint ourselves:
+ *   - Custom model  → call AWSQAdapter → return our event stream
+ *   - Kiro native   → relay request to AWS Q via fetch → capture + return response
+ *
+ * This gives us full control over both paths and clean capture of native responses.
+ *
+ * For static block rules (telemetry, updates, metrics):
+ *   Use thenReply() — no callback needed, no undefined risk.
+ *
+ * For dynamic block rules (getUsageLimits):
+ *   Use .matching() to check the condition; let the fallback thenPassThrough
+ *   handle the non-blocked case. Never use thenCallback for conditional passthrough.
  */
 
-import mockttp                          from 'mockttp'
+import mockttp                           from 'mockttp'
 import type { Mockttp, CompletedRequest } from 'mockttp'
-import CRC32                            from 'crc-32'
 
-import type { TrafficRouter }           from './TrafficRouter.js'
-import type { ModelRegistry }           from '../registry/ModelRegistry.js'
-import { log }                          from '../util/Logger.js'
+import type { TrafficRouter }            from './TrafficRouter.js'
+import type { ModelRegistry }            from '../registry/ModelRegistry.js'
+import { AWSQAdapter,
+         encodeErrorResponse }           from '../adapter/AWSQAdapter.js'
+import { InteractionLogger }             from '../debug/InteractionLogger.js'
+import { log }                           from '../util/Logger.js'
+import type { Config }                   from '../config/schema.js'
 
 // ─── ProxyManager ─────────────────────────────────────────────────────────────
 
 export class ProxyManager {
 
-  private server: Mockttp | null = null
+  private server:  Mockttp | null = null
+  private adapter: AWSQAdapter
+  private logger:  InteractionLogger
 
   constructor(
     private readonly router:   TrafficRouter,
     private readonly registry: ModelRegistry,
-  ) {}
+    private readonly config:   Config,
+  ) {
+    this.adapter = new AWSQAdapter(config)
+    this.logger  = new InteractionLogger(config)
+  }
 
-  /**
-   * Start the HTTPS MITM proxy on the given port.
-   * Returns the CA certificate PEM string (for logging/debugging).
-   * Kiro is launched with --ignore-certificate-errors so no install needed.
-   */
   async start(port: number): Promise<string> {
     const https = await mockttp.generateCACertificate({ bits: 2048 })
     this.server = mockttp.getLocal({ https })
@@ -40,9 +58,7 @@ export class ProxyManager {
     await this.registerRules()
     await this.server.start(port)
 
-    log.info(`[Proxy] Listening on port ${port}`)
-    log.debug('[Proxy] CA certificate generated (Kiro will use --ignore-certificate-errors)')
-
+    log.info(`[Proxy] HTTPS MITM proxy listening on port ${port}`)
     return https.cert
   }
 
@@ -56,114 +72,225 @@ export class ProxyManager {
 
   // ─── Rule registration ─────────────────────────────────────────────────────
 
-  /**
-   * Rules are registered in priority order — first match in mockttp wins.
-   *
-   * Order:
-   *   1. Block rules     — telemetry, updates, metrics, usageLimits
-   *   2. Model injection — ListAvailableModels (passthrough + response transform)
-   *   3. Chat routing    — generateAssistantResponse (custom or passthrough)
-   *   4. Passthrough     — everything else
-   */
   private async registerRules(): Promise<void> {
     const server = this.server!
 
-    // ── 1a. Telemetry block ───────────────────────────────────────────────────
-    await server.forAnyRequest()
-      .matching(req => req.hostname?.includes('telemetry') ?? false)
-      .thenCallback(req => {
-        const d = this.router.decideRequest(req.method, req.hostname ?? '', req.path)
-        return d.action === 'block'
-          ? { status: d.status, body: d.body, headers: { 'content-type': d.contentType } }
-          : undefined   // fall through if router disagrees (shouldn't happen)
-      })
+    // ── 1. Static block rules — thenReply(), no callback risk ────────────────
 
-    // ── 1b. All other blocking rules via single callback ─────────────────────
-    // Rather than one rule per block type, we run every request through the
-    // router. If it says 'block', we return the fake response immediately.
-    // The router evaluates rules in priority order internally.
+    // Telemetry
     await server.forAnyRequest()
-      .matching(req => {
-        const d = this.router.decideRequest(req.method, req.hostname ?? '', req.path)
-        return d.action === 'block'
-      })
-      .thenCallback(req => {
-        const d = this.router.decideRequest(req.method, req.hostname ?? '', req.path)
-        if (d.action !== 'block') return undefined
-        log.debug(`[Proxy] Blocked: ${req.method} ${req.path}`)
-        return {
-          status:  d.status,
-          body:    d.body,
-          headers: { 'content-type': d.contentType },
-        }
-      })
+      .matching(req => (req.hostname ?? '').includes('telemetry'))
+      .thenReply(200, '{"status":"ok"}', { 'content-type': 'application/json' })
 
-    // ── 2. ListAvailableModels — passthrough with response injection ──────────
+    // Update checks (GET metadata-win32, or POST update/metadata)
+    await server.forAnyRequest()
+      .matching(req =>
+        req.path.includes('metadata-win32') ||
+        (req.method === 'POST' && (
+          req.path.toLowerCase().includes('update') ||
+          (req.path.toLowerCase().includes('metadata') && !req.path.includes('ListAvailableModels'))
+        ))
+      )
+      .thenReply(200, '{"currentRelease":"0.9.40","releases":[]}', { 'content-type': 'application/json' })
+
+    // Metrics / metering POST
+    await server.forAnyRequest()
+      .matching(req =>
+        req.method === 'POST' && (
+          req.path.toLowerCase().includes('metric') ||
+          req.path.toLowerCase().includes('metering')
+        )
+      )
+      .thenReply(200, '{"status":"ok"}', { 'content-type': 'application/json' })
+
+    // ── 2. Usage limits — conditional block via .matching() ───────────────────
+    // .matching() checks the dynamic condition. When matched → thenReply().
+    // When not matched → falls through to the general thenPassThrough at the end.
+    await server.forAnyRequest()
+      .matching(req =>
+        req.path.includes('getUsageLimits') &&
+        this.router.shouldBlockUsageLimits()
+      )
+      .thenReply(
+        200,
+        '{"limits":[],"subscriptionInfo":{"type":"FREE"}}',
+        { 'content-type': 'application/json' }
+      )
+
+    // ── 3. ListAvailableModels — passthrough with response body injection ─────
     await server.forAnyRequest()
       .matching(req => req.path.includes('ListAvailableModels'))
       .thenPassThrough({
         beforeResponse: async (response) => {
+          let originalText: string
           try {
-            // mockttp provides body as a Buffer in beforeResponse
-            const originalText =
-              typeof response.body === 'string'
-                ? response.body
-                : Buffer.isBuffer(response.body)
-                  ? response.body.toString('utf-8')
-                  : JSON.stringify(response.body)
+            originalText = await response.body.getText()
+          } catch (err) {
+            log.warn(`[Proxy] Could not read ListAvailableModels body: ${String(err)}`)
+            return undefined
+          }
 
-            const modifiedText = this.registry.injectCustomModels(originalText)
+          if (!originalText) {
+            log.debug('[Proxy] ListAvailableModels response was empty — skipping injection')
+            return undefined
+          }
+
+          log.debug(`[Proxy] ListAvailableModels received (${originalText.length} chars)`)
+
+          try {
+            const modifiedText  = this.registry.injectCustomModels(originalText)
             const modifiedBytes = Buffer.byteLength(modifiedText, 'utf-8')
 
-            return {
-              headers: {
-                ...response.headers,
-                'content-length':    modifiedBytes.toString(),
-                'transfer-encoding': undefined,   // remove if present
-              },
-              body: modifiedText,
-            }
+            const headers = { ...response.headers }
+            delete headers['content-length']
+            delete headers['transfer-encoding']
+            headers['content-length'] = modifiedBytes.toString()
+
+            return { headers, body: modifiedText }
           } catch (err) {
             log.error('[Proxy] Model injection failed — returning original response', err)
-            return undefined   // return original unmodified
+            return undefined
           }
         },
       })
 
-    // ── 3. generateAssistantResponse ─────────────────────────────────────────
+    // ── 4. generateAssistantResponse — full intercept, no undefined returns ───
+    // We handle ALL requests: custom model → adapter, native → relay to AWS Q.
+    // This is the only safe pattern for thenCallback with conditional routing.
     await server.forAnyRequest()
       .matching(req => req.path.includes('generateAssistantResponse'))
       .thenCallback(async (req) => {
         const body = await this.getBodyText(req)
-        const decision = this.router.decideRequest(req.method, req.hostname ?? '', req.path, body)
 
+        // Save request for debug capture
+        const reqIndex = this.logger.saveRequest(
+          body,
+          req.url,
+          req.headers as Record<string, string>,
+        )
+
+        const decision = this.router.decideRequest(
+          req.method,
+          req.hostname ?? '',
+          req.path,
+          body,
+        )
+
+        // ── Custom model path ───────────────────────────────────────────────
         if (decision.action === 'custom-model') {
-          log.info(`[Proxy] Custom model selected: ${decision.modelId} → ${decision.provider.name}`)
-
-          // ── Phase 2 placeholder ─────────────────────────────────────────────
-          // Phase 3 will replace this with AWSQAdapter.handle(body, decision.provider)
-          const placeholderText =
-            `[KiroMask] Routing to ${decision.provider.name} / ${decision.modelId}. ` +
-            `Translation layer not yet implemented — Phase 3 coming soon.`
-
-          return {
-            status: 200,
-            headers: { 'content-type': 'application/vnd.amazon.eventstream' },
-            body:    encodePlaceholderResponse(placeholderText),
+          log.info(`[Proxy] → ${decision.provider.name} / ${decision.modelId}`)
+          try {
+            const responseBuffer = await this.adapter.handle(body, decision.provider)
+            this.logger.saveResponse(responseBuffer, reqIndex)
+            this.logger.saveResponseText(responseBuffer, reqIndex)
+            return {
+              status:  200,
+              headers: { 'content-type': 'application/vnd.amazon.eventstream' },
+              body:    responseBuffer,
+            }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            log.error(`[Proxy] Adapter error for ${decision.modelId}: ${message}`, err)
+            const errorBuffer = encodeErrorResponse(message)
+            this.logger.saveResponse(errorBuffer, reqIndex)
+            return {
+              status:  200,
+              headers: { 'content-type': 'application/vnd.amazon.eventstream' },
+              body:    errorBuffer,
+            }
           }
         }
 
-        // Kiro model or unknown — pass through to AWS Q
-        return undefined   // returning undefined means "use default passthrough"
+        // ── Native Kiro path — relay to AWS Q manually ──────────────────────
+        // We cannot return undefined from thenCallback.
+        // Instead, relay the request to AWS Q ourselves so we can also capture it.
+        log.debug(`[Proxy] Native Kiro → relaying to AWS Q`)
+        return this.relayToAWSQ(req, body, reqIndex)
       })
 
-    // ── 4. Fallback passthrough ───────────────────────────────────────────────
+    // ── 5. Fallback — everything else passes through ─────────────────────────
     await server.forAnyRequest().thenPassThrough()
 
     log.debug('[Proxy] Rules registered')
   }
 
-  // ─── Helpers ──────────────────────────────────────────────────────────────
+  // ─── Native AWS Q relay ───────────────────────────────────────────────────
+
+  /**
+   * Forward a native Kiro request to AWS Q and return the response.
+   * This replaces the mockttp passthrough for generateAssistantResponse,
+   * giving us the ability to capture the raw binary response.
+   *
+   * The Authorization header from the original request is preserved,
+   * so Kiro's AWS credentials are forwarded as-is.
+   */
+  private async relayToAWSQ(
+    req:      CompletedRequest,
+    body:     string,
+    reqIndex: number,
+  ): Promise<{ status: number; headers: Record<string, string>; body: Buffer }> {
+    try {
+      const url = req.url
+
+      // Build relay headers — forward everything except hop-by-hop headers
+      const skipHeaders = new Set([
+        'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
+        'te', 'trailers', 'transfer-encoding', 'upgrade',
+      ])
+      const relayHeaders: Record<string, string> = {}
+      for (const [key, value] of Object.entries(req.headers)) {
+        if (!skipHeaders.has(key.toLowerCase()) && typeof value === 'string') {
+          relayHeaders[key] = value
+        }
+      }
+
+      const response = await fetch(url, {
+        method:  req.method,
+        headers: relayHeaders,
+        body:    body || undefined,
+      })
+
+      // Read the raw binary response — AWS Q returns event stream binary
+      const arrayBuffer = await response.arrayBuffer()
+      const responseBuffer = Buffer.from(arrayBuffer)
+
+      log.debug(`[Proxy] AWS Q relayed: ${response.status} (${responseBuffer.length} bytes)`)
+
+      // Capture the response
+      this.logger.saveResponse(responseBuffer, reqIndex)
+      this.logger.saveResponseText(responseBuffer, reqIndex)
+
+      // Build response headers
+      const responseHeaders: Record<string, string> = {}
+      response.headers.forEach((value, key) => {
+        responseHeaders[key] = value
+      })
+      // Ensure content-type is correct for event stream
+      if (!responseHeaders['content-type']) {
+        responseHeaders['content-type'] = 'application/vnd.amazon.eventstream'
+      }
+      // Remove transfer-encoding to avoid conflicts — we have a full buffer
+      delete responseHeaders['transfer-encoding']
+      responseHeaders['content-length'] = responseBuffer.length.toString()
+
+      return {
+        status:  response.status,
+        headers: responseHeaders,
+        body:    responseBuffer,
+      }
+    } catch (err) {
+      log.error('[Proxy] Failed to relay to AWS Q', err)
+      // Return a minimal error response so thenCallback doesn't crash
+      const errorMsg = `Failed to relay to AWS Q: ${err instanceof Error ? err.message : String(err)}`
+      return {
+        status:  503,
+        headers: { 'content-type': 'application/json' },
+        body:    Buffer.from(JSON.stringify({ error: errorMsg })),
+      }
+    }
+  }
+
+  // ─── Helpers ─────────────────────────────────────────────────────────────
 
   private async getBodyText(req: CompletedRequest): Promise<string> {
     try {
@@ -172,55 +299,4 @@ export class ProxyManager {
       return ''
     }
   }
-}
-
-// ─── Phase 2 placeholder: minimal AWS Event Stream encoder ───────────────────
-//
-// Produces a valid binary event stream containing a single assistantResponseEvent.
-// This is temporary — Phase 3 replaces it with lib/awsq-adapter/eventStream.ts.
-// Kept here so Phase 2 is testable end-to-end without the full lib.
-
-function encodeEventStreamHeader(name: string, value: string): Buffer {
-  const n   = Buffer.from(name,  'utf8')
-  const v   = Buffer.from(value, 'utf8')
-  const buf = Buffer.alloc(1 + n.length + 1 + 2 + v.length)
-  let i = 0
-  buf.writeUInt8(n.length, i++);  n.copy(buf, i); i += n.length
-  buf.writeUInt8(7,         i++)  // value type 7 = string
-  buf.writeUInt16BE(v.length, i); i += 2
-  v.copy(buf, i)
-  return buf
-}
-
-function encodeEventFrame(eventType: string, payload: object): Buffer {
-  const payloadBuf = Buffer.from(JSON.stringify(payload), 'utf8')
-
-  const headers = Buffer.concat([
-    encodeEventStreamHeader(':event-type',    eventType),
-    encodeEventStreamHeader(':content-type',  'application/json'),
-    encodeEventStreamHeader(':message-type',  'event'),
-  ])
-
-  const totalLength = 12 + headers.length + payloadBuf.length + 4
-
-  const prelude = Buffer.alloc(8)
-  prelude.writeUInt32BE(totalLength,    0)
-  prelude.writeUInt32BE(headers.length, 4)
-
-  const preludeCrc = Buffer.alloc(4)
-  preludeCrc.writeUInt32BE((CRC32.buf(prelude) >>> 0), 0)
-
-  const msgBody = Buffer.concat([prelude, preludeCrc, headers, payloadBuf])
-  const msgCrc  = Buffer.alloc(4)
-  msgCrc.writeUInt32BE((CRC32.buf(msgBody) >>> 0), 0)
-
-  return Buffer.concat([msgBody, msgCrc])
-}
-
-function encodePlaceholderResponse(text: string): Buffer {
-  return Buffer.concat([
-    encodeEventFrame('assistantResponseEvent', { content: text }),
-    encodeEventFrame('meteringEvent',          { unit: 'credit', unitPlural: 'credits', usage: 0 }),
-    encodeEventFrame('contextUsageEvent',      { contextUsagePercentage: 0 }),
-  ])
 }

@@ -220,7 +220,7 @@ async function main(): Promise<void> {
   const startedAt = Date.now()
   const registry  = new ModelRegistry(cfg)
   const router    = new TrafficRouter(cfg, registry, startedAt)
-  const proxy     = new ProxyManager(router, registry)
+  const proxy     = new ProxyManager(router, registry, cfg)
 
   // ── 7. Register shutdown handler ────────────────────────────────────────────
   registerShutdownHandlers(async () => {

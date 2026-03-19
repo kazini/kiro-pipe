@@ -1,0 +1,18 @@
+{
+  "_description": "Plain user message, no history, no tools.",
+  "_expect": {
+    "anthropic_message_count": 1,
+    "openai_message_count": 1,
+    "has_tools": false
+  },
+  "conversationState": {
+    "conversationId": "fixture-plain-001",
+    "currentMessage": {
+      "userInputMessage": {
+        "content": "What is 2 + 2?",
+        "modelId": "claude-3-5-sonnet-20241022",
+        "origin": "HUMAN"
+      }
+    }
+  }
+}

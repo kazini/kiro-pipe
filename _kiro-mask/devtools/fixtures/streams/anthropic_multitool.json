@@ -1,0 +1,18 @@
+{
+  "_description": "Two tool use blocks at index 0 and index 1. Tests that index-keyed tracking correctly separates them. The Python version's bug would have merged both into the first tool ID.",
+  "_expect": {
+    "tool_ids": ["toolu_aaa", "toolu_bbb"],
+    "both_tools_must_appear_in_output": true
+  },
+  "events": [
+    { "type": "message_start",       "message": { "usage": { "input_tokens": 100 } } },
+    { "type": "content_block_start", "index": 0, "content_block": { "type": "tool_use", "id": "toolu_aaa", "name": "readFile" } },
+    { "type": "content_block_delta", "index": 0, "delta": { "type": "input_json_delta", "partial_json": "{\"path\":\"a.ts\"}" } },
+    { "type": "content_block_stop",  "index": 0 },
+    { "type": "content_block_start", "index": 1, "content_block": { "type": "tool_use", "id": "toolu_bbb", "name": "readFile" } },
+    { "type": "content_block_delta", "index": 1, "delta": { "type": "input_json_delta", "partial_json": "{\"path\":\"b.ts\"}" } },
+    { "type": "content_block_stop",  "index": 1 },
+    { "type": "message_delta",       "usage": { "output_tokens": 30 } },
+    { "type": "message_stop" }
+  ]
+}

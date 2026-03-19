@@ -1,0 +1,43 @@
+{
+  "_description": "User message with tool definitions in context. No prior tool use.",
+  "_expect": {
+    "anthropic_message_count": 1,
+    "openai_message_count": 1,
+    "has_tools": true,
+    "tool_count": 1,
+    "anthropic_tool_key": "input_schema",
+    "openai_tool_key": "parameters"
+  },
+  "conversationState": {
+    "conversationId": "fixture-tools-001",
+    "currentMessage": {
+      "userInputMessage": {
+        "content": "Read the file src/index.ts",
+        "modelId": "claude-3-5-sonnet-20241022",
+        "origin": "HUMAN",
+        "userInputMessageContext": {
+          "tools": [
+            {
+              "toolSpecification": {
+                "name": "readFile",
+                "description": "Read a file from disk and return its contents",
+                "inputSchema": {
+                  "json": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string",
+                        "description": "The file path to read"
+                      }
+                    },
+                    "required": ["path"]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

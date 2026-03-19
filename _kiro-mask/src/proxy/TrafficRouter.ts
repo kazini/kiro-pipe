@@ -115,7 +115,7 @@ export class TrafficRouter {
    * The startup window handles the race between Kiro's first requests
    * and our ListAvailableModels injection completing.
    */
-  private shouldBlockUsageLimits(): boolean {
+  shouldBlockUsageLimits(): boolean {
     const force = this.config.kiro_endpoint.force_usage_limits
     if (force === true)  return false   // always allow
     if (force === false) return true    // always block

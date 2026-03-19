@@ -239,7 +239,15 @@ export class KiroLauncher {
     }
 
     log.info(`[Launcher] Kiro found: ${kiroExe}`)
+
+    // Brief pause to ensure proxy has fully registered all rules before
+    // Kiro starts making network requests. ListAvailableModels fires very
+    // early in Kiro's startup — we must be ready to intercept it.
+    await new Promise(r => setTimeout(r, 1500))
+
     log.info(`[Launcher] Spawning with proxy on port ${proxyPort}…`)
+    log.debug(`[Launcher] Command: ${kiroExe} ${kiroCliJs} --ignore-certificate-errors --proxy-server=127.0.0.1:${proxyPort}`)
+    log.debug('[Launcher] Env: NODE_TLS_REJECT_UNAUTHORIZED=0, ELECTRON_IGNORE_CERTIFICATE_ERRORS=1, ELECTRON_RUN_AS_NODE=1')
 
     const env: NodeJS.ProcessEnv = {
       ...process.env,

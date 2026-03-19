@@ -1,0 +1,17 @@
+{
+  "_description": "Two tool_calls at index 0 and index 1 in the same OpenAI SSE stream.",
+  "_expect": {
+    "tool_ids": ["call_aaa", "call_bbb"],
+    "both_tools_must_appear_in_output": true
+  },
+  "chunks": [
+    { "choices": [{ "delta": { "tool_calls": [
+        { "index": 0, "id": "call_aaa", "type": "function", "function": { "name": "readFile", "arguments": "" } },
+        { "index": 1, "id": "call_bbb", "type": "function", "function": { "name": "readFile", "arguments": "" } }
+    ]}, "finish_reason": null }] },
+    { "choices": [{ "delta": { "tool_calls": [{ "index": 0, "function": { "arguments": "{\"path\":\"a.ts\"}" } }] }, "finish_reason": null }] },
+    { "choices": [{ "delta": { "tool_calls": [{ "index": 1, "function": { "arguments": "{\"path\":\"b.ts\"}" } }] }, "finish_reason": null }] },
+    { "choices": [{ "delta": {}, "finish_reason": "tool_calls" }],
+      "usage": { "prompt_tokens": 100, "completion_tokens": 30 } }
+  ]
+}

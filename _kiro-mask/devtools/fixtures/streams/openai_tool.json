@@ -1,0 +1,16 @@
+{
+  "_description": "OpenAI SSE stream with text followed by a tool call, streamed in argument chunks.",
+  "_expect": {
+    "has_text": true,
+    "tool_count": 1,
+    "tool_ids": ["call_abc"]
+  },
+  "chunks": [
+    { "choices": [{ "delta": { "content": "Let me read that file." }, "finish_reason": null }] },
+    { "choices": [{ "delta": { "tool_calls": [{ "index": 0, "id": "call_abc", "type": "function", "function": { "name": "readFile", "arguments": "" } }] }, "finish_reason": null }] },
+    { "choices": [{ "delta": { "tool_calls": [{ "index": 0, "function": { "arguments": "{\"path\"" } }] }, "finish_reason": null }] },
+    { "choices": [{ "delta": { "tool_calls": [{ "index": 0, "function": { "arguments": ":\"src/index.ts\"}" } }] }, "finish_reason": null }] },
+    { "choices": [{ "delta": {}, "finish_reason": "tool_calls" }],
+      "usage": { "prompt_tokens": 85, "completion_tokens": 25 } }
+  ]
+}

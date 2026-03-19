@@ -1,0 +1,6 @@
+Hello, world! This is a file, and its first line.
+This is its second line!!
+
+This is the fourth, the third was a line jump.
+And now, the fifth line completes the story.
+The end of the beginning, and the start of what comes next.
