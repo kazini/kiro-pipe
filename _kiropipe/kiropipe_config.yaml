@@ -7,7 +7,7 @@ proxy:
 
 # Kiro executable
 kiro:
-  exe_path: null  # Auto-detect
+  exe_path: "C:\\Users\\Kazini\\Vault\\Programas\\Coding\\coding tools\\Kiro\\kiro.exe"  # Auto-detect
 
 # Kiro endpoint settings (TRUE = allow, FALSE = block)
 kiro_endpoint:

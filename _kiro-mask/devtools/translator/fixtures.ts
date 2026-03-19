@@ -120,3 +120,62 @@ export function listFixtures(dir: 'requests' | 'streams'): string[] {
     .filter((f: string) => f.endsWith('.json'))
     .map((f: string) => f.replace(/\.json$/, ''))
 }
+
+// ─── Loaders for captured interaction files ───────────────────────────────────
+// Load files saved by InteractionLogger during a real Kiro session.
+// Pass a path relative to the project root (cwd).
+
+import { readFileSync as _rfs } from 'node:fs'
+import { resolve as _res }      from 'node:path'
+import type {
+  AnthropicStreamEvent,
+}                               from '../../src/lib/awsq-adapter/types.js'
+
+/**
+ * Load a captured posted/request_N.json as an AWSQRequest.
+ * Strips the _index / _url / _headers envelope if present.
+ */
+export function loadCapturedRequest(filePath: string): AWSQRequest {
+  const abs  = _res(process.cwd(), filePath)
+  const data = JSON.parse(_rfs(abs, 'utf-8')) as Record<string, unknown>
+  // InteractionLogger wraps the body in an envelope
+  const body = ('body' in data) ? data['body'] : data
+  return body as unknown as AWSQRequest
+}
+
+/**
+ * Load a captured responses/response_N.json and yield frames as a stream
+ * the ResponseTranslator can consume.
+ *
+ * File format (Python-compatible):
+ *   [{ "headers": {":event-type": "..."}, "payload": {...} }, ...]
+ *
+ * Mapping: assistantResponseEvent → text_delta, meteringEvent → message_stop.
+ * Use this to test that re-encoding a captured response produces valid output.
+ */
+export async function* loadCapturedResponseAsStream(
+  filePath: string,
+): AsyncGenerator<AnthropicStreamEvent> {
+  const abs    = _res(process.cwd(), filePath)
+  const frames = JSON.parse(_rfs(abs, 'utf-8')) as Array<{
+    headers: Record<string, string>
+    payload: Record<string, unknown>
+  }>
+
+  let index = 0
+  for (const frame of frames) {
+    const eventType = frame.headers[':event-type'] ?? ''
+    const payload   = frame.payload
+
+    if (eventType === 'assistantResponseEvent') {
+      yield {
+        type:  'content_block_delta',
+        index: index++,
+        delta: { type: 'text_delta', text: String(payload['content'] ?? '') },
+      }
+    } else if (eventType === 'meteringEvent') {
+      yield { type: 'message_stop' }
+    }
+    // toolUseEvent and contextUsageEvent are output-only — skip for re-encoding test
+  }
+}

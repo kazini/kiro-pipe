@@ -1251,7 +1251,5 @@ if __name__ == "__main__":
     print(f"{Fore.CYAN}Proxy stopped. Waiting for cleanup...{Style.RESET_ALL}")
     kiro_thread.join(timeout=5)
     print(f"{Fore.GREEN}Cleanup complete.{Style.RESET_ALL}")
-        print(f"{'='*60}\n")
-    except Exception as e:
-        print(f"\nError launching Kiro: {e}")
-
+    print(f"{'='*60}\n")
+   
