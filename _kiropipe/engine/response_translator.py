@@ -7,7 +7,7 @@ Converts LLM API responses (Anthropic/OpenAI) to AWS Event Stream format
 import json
 import sys
 from pathlib import Path
-from typing import Iterator, Dict, Any
+from typing import Iterator, Dict, Any, Optional
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
