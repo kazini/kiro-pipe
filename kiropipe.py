@@ -172,6 +172,7 @@ Configuration: Edit _kiropipe/kiropipe_config.yaml
 # ============================================================
 # HARDCODED DEFAULTS (overridden by config file if present)
 # ============================================================
+APP_TITLE = 'Kiro Pipe — Console'  # Window/process title
 DEFAULT_PORT = 29974
 KIRO_EXE_PATH = None  # Set to custom path or None to auto-detect
 ALLOW_TELEMETRY = False  # FALSE = block
@@ -185,9 +186,13 @@ ALLOW_KIRO_MODELS = True  # TRUE = allow Kiro's default models
 # Setup directories
 SCRIPT_DIR = Path(__file__).parent  # Base directory (where kiropipe.py is)
 KIROPIPE_DIR = SCRIPT_DIR / "_kiropipe"  # Module directory
-DEBUG_DIR = KIROPIPE_DIR / "debug_logs" / "interactions"
-RESPONSES_DIR = DEBUG_DIR / "responses"
-POSTED_DIR = DEBUG_DIR / "posted"
+DEBUG_DIR       = KIROPIPE_DIR / "debug_logs" / "interactions"
+RESPONSES_DIR   = DEBUG_DIR / "responses"
+POSTED_DIR      = DEBUG_DIR / "posted"
+MCP_TOOLS_FILE  = DEBUG_DIR / "mcp_tools_aws.json"       # full AWS MCP tool definitions
+INT_TOOLS_FILE  = DEBUG_DIR / "mcp_tools_internal.json"  # tools as seen by the model
+SYSPROMPT_FILE  = DEBUG_DIR / "system_prompt.md"         # latest captured system prompt
+SYSPROMPT_CUSTOM = DEBUG_DIR / "system_prompt_custom.md" # override: if present, used instead
 
 # Injection queue file (after KIROPIPE_DIR is defined)
 INJECTION_QUEUE_FILE = KIROPIPE_DIR / "debug_logs" / ".injection_queue.json"
@@ -280,6 +285,7 @@ if not any(t.name == 'config-watcher' for t in threading.enumerate()):
 if DEBUG_STORE_INTERACTION_BLOCKS:
     RESPONSES_DIR.mkdir(parents=True, exist_ok=True)
     POSTED_DIR.mkdir(parents=True, exist_ok=True)
+    DEBUG_DIR.mkdir(parents=True, exist_ok=True)
 
 def _strip_metering_events(data: bytes) -> bytes:
     """
@@ -560,6 +566,7 @@ class KiroInterceptor:
                 'generateAssistantResponse' in flow.request.path  # re-routed to custom provider
                 or 'generatecompletions' in flow.request.path      # handled by completions logic
                 or 'ListAvailableModels' in flow.request.path      # served from cache/config
+                or '/mcp' in flow.request.path                     # MCP handled below (always pass)
                 or 'auth.desktop.kiro.dev' in flow.request.pretty_host  # fake login handler
             )
             if not _is_routed_locally and (
@@ -585,6 +592,7 @@ class KiroInterceptor:
                 'generateAssistantResponse' in _aws_path
                 or 'ListAvailableModels' in _aws_path
                 or 'generatecompletions' in _aws_path
+                or '/mcp' in _aws_path  # MCP tools always pass through
             )
             if not _allowed_aws:
                 if DEBUG_MODE_ENABLED:
@@ -622,6 +630,86 @@ class KiroInterceptor:
                     print(f"{Fore.CYAN}[FAKE LOGOUT]{Style.RESET_ALL} Suppressed")
                 return
 
+        # ── /mcp tools/call: intercept web_search if execute is configured ──────
+        if '/mcp' in flow.request.path and 'amazonaws.com' in flow.request.pretty_host:
+            try:
+                mcp_body = json.loads(flow.request.text)
+            except Exception:
+                mcp_body = {}
+            if mcp_body.get('method') == 'tools/call' and \
+               (mcp_body.get('params', {}) or {}).get('name') == 'web_search':
+                _ws_cfg = CONFIG.get('web_search', None) if CONFIG else None
+                _execute = (_ws_cfg or {}).get('execute') if isinstance(_ws_cfg, dict) else None
+                if _execute:
+                    try:
+                        import httpx as _hx
+                        _query   = (mcp_body.get('params', {}).get('arguments') or {}).get('query', '')
+                        _req_id  = mcp_body.get('id', 'web_search_1')
+                        _etype   = _execute.get('type', 'http')
+                        _url     = _execute.get('url', '')
+                        _key     = _execute.get('api_key', '')
+                        _headers = {'content-type': 'application/json'}
+                        if _key:
+                            _headers['Authorization'] = f'Bearer {_key}'
+
+                        if _etype == 'mcp_server':
+                            # Forward the JSON-RPC call as-is to a local/remote MCP server
+                            _r = _hx.post(_url, json=mcp_body, headers=_headers, timeout=30.0)
+                            _result_body = _r.content
+                        elif _etype == 'binary':
+                            # Run a local binary/script, pass query as argument (or stdin)
+                            import subprocess as _sp
+                            _cmd  = _execute.get('command', _url)  # 'command' or 'url' key
+                            _args = _execute.get('args', [])       # extra fixed args
+                            _stdin_mode = _execute.get('stdin', False)  # pass query via stdin
+                            if isinstance(_cmd, str):
+                                _cmd = [_cmd]
+                            _proc_args = _cmd + list(_args) + ([] if _stdin_mode else [_query])
+                            _proc = _sp.run(
+                                _proc_args,
+                                input=_query if _stdin_mode else None,
+                                capture_output=True, text=True, timeout=30
+                            )
+                            _stdout = _proc.stdout.strip()
+                            # Try to parse as JSON; fall back to wrapping as a single result
+                            try:
+                                _out_data = json.loads(_stdout)
+                                _text = json.dumps({'results': _out_data.get('results', _out_data)
+                                                    if isinstance(_out_data, dict) else _out_data})
+                            except Exception:
+                                _text = json.dumps({'results': [{'text': _stdout}]})
+                            _result_body = json.dumps({
+                                'jsonrpc': '2.0', 'id': _req_id, 'error': None,
+                                'result': {'content': [{'type': 'text', 'text': _text}]}
+                            }).encode('utf-8')
+                        else:  # 'http' — POST {query} and wrap results
+                            _r = _hx.post(_url, json={'query': _query},
+                                          headers=_headers, timeout=30.0)
+                            if _r.status_code == 200:
+                                _resp_json = _r.json()
+                                # Normalise: support {results:[...]} or direct array
+                                _results = (_resp_json.get('results') or _resp_json
+                                            if isinstance(_resp_json, (dict, list)) else [])
+                                _text = json.dumps({'results': _results})
+                            else:
+                                _text = json.dumps({'error': f'HTTP {_r.status_code}', 'results': []})
+                            _result_body = json.dumps({
+                                'jsonrpc': '2.0', 'id': _req_id, 'error': None,
+                                'result': {'content': [{'type': 'text', 'text': _text}]}
+                            }).encode('utf-8')
+
+                        flow.response = http.Response.make(
+                            200, _result_body, {'Content-Type': 'application/json'}
+                        )
+                        if DEBUG_MODE_ENABLED:
+                            print(f"{Fore.CYAN}[WEB SEARCH]{Style.RESET_ALL} "
+                                  f"Routed via {_etype}: {_query!r}")
+                        return
+                    except Exception as _e:
+                        if DEBUG_MODE_ENABLED:
+                            print(f"{Fore.RED}[WEB SEARCH ERROR]{Style.RESET_ALL} {_e}")
+                        # Fall through to AWS on error
+
         # ── /generatecompletions (inline autocomplete) ───────────────────────
         # Config 'completions.mode':
         #   'passthrough'  → always forward to AWS, regardless of model state
@@ -639,13 +727,10 @@ class KiroInterceptor:
             elif _comp_cfg is None:
                 # Default: block when custom model active, pass through for Kiro
                 if self.block_aws_traffic:
-                    flow.response = http.Response.make(
-                        200,
-                        b'{"completions":[],"modelId":null,"nextToken":"","predictions":[]}',
-                        {'Content-Type': 'application/json'}
-                    )
+                    # Kill rather than mock — empty mock inserts a blank space
                     if DEBUG_MODE_ENABLED:
                         print(f"{Fore.RED}[COMPLETIONS BLOCKED]{Style.RESET_ALL} (null mode, custom model active)")
+                    flow.kill()
                     return
                 # else: Kiro model active — fall through to AWS
             else:
@@ -695,19 +780,13 @@ class KiroInterceptor:
                             print(f"{Fore.CYAN}[COMPLETIONS]{Style.RESET_ALL} Served via {_prov_name}/{_comp_mdl}")
                     except Exception as _e:
                         if DEBUG_MODE_ENABLED:
-                            print(f"{Fore.RED}[COMPLETIONS ERROR]{Style.RESET_ALL} {_e}")
-                        flow.response = http.Response.make(
-                            200,
-                            b'{"completions":[],"modelId":null,"nextToken":"","predictions":[]}',
-                            {'Content-Type': 'application/json'}
-                        )
+                            print(f"{Fore.RED}[COMPLETIONS ERROR]{Style.RESET_ALL} {_e} — killing flow")
+                        flow.kill()
                 else:
-                    # Unknown model — block
-                    flow.response = http.Response.make(
-                        200,
-                        b'{"completions":[],"modelId":null,"nextToken":"","predictions":[]}',
-                        {'Content-Type': 'application/json'}
-                    )
+                    # Unknown model — kill rather than mock empty
+                    if DEBUG_MODE_ENABLED:
+                        print(f"{Fore.RED}[COMPLETIONS]{Style.RESET_ALL} Unknown model {_target!r} — killing flow")
+                    flow.kill()
                 return
 
         # Block Kiro models if not allowed
@@ -971,7 +1050,52 @@ class KiroInterceptor:
                         
                         # Extract conversation ID for usage tracking
                         conversation_id = aws_body.get('conversationState', {}).get('conversationId', 'unknown')
-                        
+
+                        # ── Extract + save system prompt and internal tool list ──────────
+                        if self.save_to_file:
+                            try:
+                                from engine.request_translator import extract_tools
+                                _int_tools = extract_tools(aws_body)
+                                if _int_tools:
+                                    INT_TOOLS_FILE.write_text(
+                                        json.dumps(_int_tools, indent=2), encoding='utf-8')
+                            except Exception:
+                                pass
+                            try:
+                                # System prompt: first user message in history containing <identity>
+                                history = aws_body.get('conversationState', {}).get('history', [])
+                                for _item in history:
+                                    _content = (_item.get('userInputMessage') or {}).get('content', '')
+                                    if _content and '<identity>' in _content:
+                                        _sp_text = _content
+                                        # Only write if changed (compare stripped)
+                                        _existing = SYSPROMPT_FILE.read_text(encoding='utf-8') if SYSPROMPT_FILE.exists() else ''
+                                        if _sp_text.strip() != _existing.strip():
+                                            SYSPROMPT_FILE.write_text(_sp_text, encoding='utf-8')
+                                            if DEBUG_MODE_ENABLED:
+                                                print(f"{Fore.CYAN}[SYSPROMPT]{Style.RESET_ALL} System prompt updated ({len(_sp_text)} chars)")
+                                        break
+                            except Exception:
+                                pass
+                        # ─────────────────────────────────────────────────────────────────
+
+                        # ── Custom system prompt override ────────────────────────────────
+                        # If system_prompt_custom.md exists, inject it in place of Kiro's
+                        if SYSPROMPT_CUSTOM.exists():
+                            try:
+                                _custom_sp = SYSPROMPT_CUSTOM.read_text(encoding='utf-8')
+                                history = aws_body.get('conversationState', {}).get('history', [])
+                                for _item in history:
+                                    _ui = _item.get('userInputMessage')
+                                    if _ui and '<identity>' in (_ui.get('content') or ''):
+                                        _ui['content'] = _custom_sp
+                                        if DEBUG_MODE_ENABLED:
+                                            print(f"{Fore.MAGENTA}[SYSPROMPT OVERRIDE]{Style.RESET_ALL} Custom system prompt injected")
+                                        break
+                            except Exception:
+                                pass
+                        # ─────────────────────────────────────────────────────────────────
+
                         # Get provider type to determine how to route
                         provider_type = provider_config.get('type', provider_name)
                         
@@ -1050,6 +1174,11 @@ class KiroInterceptor:
                                                 delay = retry_handler.calculate_delay(attempt)
                                                 if DEBUG_MODE_ENABLED:
                                                     print(f"{Fore.YELLOW}[RETRY]{Style.RESET_ALL} Status {response.status_code}, retrying in {delay:.2f}s (attempt {attempt+1}/{retry_handler.config.max_retries})")
+                                                # Abort retry if the client already disconnected
+                                                if not flow.live:
+                                                    if DEBUG_MODE_ENABLED:
+                                                        print(f"{Fore.YELLOW}[RETRY CANCELLED]{Style.RESET_ALL} Client disconnected, aborting")
+                                                    return
                                                 time.sleep(delay)
                                                 continue
                                             flow.response = http.Response.make(
@@ -1195,6 +1324,11 @@ class KiroInterceptor:
                                                 delay = retry_handler.calculate_delay(attempt)
                                                 if DEBUG_MODE_ENABLED:
                                                     print(f"{Fore.YELLOW}[RETRY]{Style.RESET_ALL} Status {response.status_code}, retrying in {delay:.2f}s (attempt {attempt+1}/{retry_handler.config.max_retries})")
+                                                # Abort retry if the client already disconnected
+                                                if not flow.live:
+                                                    if DEBUG_MODE_ENABLED:
+                                                        print(f"{Fore.YELLOW}[RETRY CANCELLED]{Style.RESET_ALL} Client disconnected, aborting")
+                                                    return
                                                 time.sleep(delay)
                                                 continue
                                             # Non-retryable error — return immediately
@@ -1643,6 +1777,89 @@ class KiroInterceptor:
                     if DEBUG_MODE_ENABLED:
                         print(f"{Fore.RED}[MODEL LIST ERROR]{Style.RESET_ALL} {e}")
 
+            # MCP tools/list: resolve web_search config and optionally replace it.
+            # web_search value:
+            #   null/'default' → keep AWS web_search as-is
+            #   'none'         → remove it entirely
+            #   'exa'/'brave'  → built-in presets
+            #   dict           → custom tool definition
+            # Any non-null/non-default value is also injected when AWS is blocked.
+            if '/mcp' in flow.request.path:
+                _ws_cfg = CONFIG.get('web_search', None) if CONFIG else None
+                # Resolve config value:
+                #   null/'default'  → no change
+                #   'aws-enforce'   → keep AWS tool, inject a copy when AWS is blocked
+                #   dict            → custom tool definition, replaces AWS + always injected
+                if _ws_cfg in (None, 'default'):
+                    _ws_replace, _ws_enforce, _ws_tool = False, False, None
+                    _ws_partial = False
+                    self._ws_partial_active = False
+                elif _ws_cfg == 'aws-enforce':
+                    _ws_replace, _ws_enforce, _ws_tool = False, True, {
+                        'name': 'web_search',
+                        'description': 'Search the web for current information.',
+                        'inputSchema': {'type': 'object',
+                                        'properties': {'query': {'type': 'string'}},
+                                        'required': ['query']}
+                    }
+                    _ws_partial = False
+                elif isinstance(_ws_cfg, dict):
+                    # Partial override: merge non-null fields onto AWS entry; strip 'execute'
+                    _override = {k: v for k, v in _ws_cfg.items()
+                                 if k != 'execute' and v is not None}
+                    _has_def_override = bool(_override)
+                    _has_execute = 'execute' in _ws_cfg
+                    # Only replace+inject if there's a definition override or execute configured
+                    _ws_replace = _has_def_override or _has_execute
+                    _ws_enforce = True
+                    _ws_tool    = _override if _has_def_override else None  # None = merge later
+                    _ws_partial = True  # signal to merge against AWS entry below
+                    self._ws_partial_active = True
+                else:
+                    _ws_replace, _ws_enforce, _ws_tool = False, False, None
+                    _ws_partial = False
+                try:
+                    mcp_data = json.loads(flow.response.text)
+                    tools_available = mcp_data.get('result', {}).get('tools', [])
+                    if DEBUG_MODE_ENABLED and tools_available:
+                        names = [t.get('name') for t in tools_available]
+                        print(f"{Fore.CYAN}[MCP tools/list]{Style.RESET_ALL} {len(names)} tools: {names}")
+                    # Save full AWS MCP tool definitions to file when store_interaction_blocks
+                    if self.save_to_file and tools_available:
+                        try:
+                            MCP_TOOLS_FILE.write_text(
+                                json.dumps(tools_available, indent=2), encoding='utf-8')
+                        except Exception:
+                            pass
+                    # was_blocked: AWS returned stub {status:ok} instead of real response
+                    was_blocked = 'result' not in mcp_data and 'status' in mcp_data
+                    if _ws_enforce and was_blocked:
+                        # Synthesise a valid tools/list envelope so we can inject our tool
+                        mcp_data = {'jsonrpc': '2.0', 'id': 'tools_list',
+                                    'error': None, 'result': {'tools': []}}
+                        tools_available = []
+                    if _ws_replace or (_ws_enforce and was_blocked):
+                        # Find existing AWS web_search entry for partial merge
+                        _aws_ws = next((t for t in tools_available if t.get('name') == 'web_search'), {})
+                        tools_available = [t for t in tools_available if t.get('name') != 'web_search']
+                        if _ws_tool is not None or (getattr(self, '_ws_partial', False) and _aws_ws):
+                            # Merge: start from AWS entry, apply non-null overrides on top
+                            _merged = dict(_aws_ws)
+                            if _ws_tool:
+                                _merged.update(_ws_tool)
+                            tools_available.insert(0, _merged)
+                        mcp_data.setdefault('result', {})['tools'] = tools_available
+                        replaced_json = json.dumps(mcp_data).encode('utf-8')
+                        flow.response.content = replaced_json
+                        flow.response.headers['content-length'] = str(len(replaced_json))
+                        if DEBUG_MODE_ENABLED:
+                            label = _ws_tool.get('name', '?') if _ws_tool else '(removed)'
+                            src = '(blocked AWS)' if was_blocked else ''
+                            print(f"{Fore.CYAN}[MCP]{Style.RESET_ALL} web_search → {label} {src}".rstrip())
+                except Exception as _e:
+                    if DEBUG_MODE_ENABLED:
+                        print(f"{Fore.RED}[MCP ERROR]{Style.RESET_ALL} {_e}")
+
             if 'amazonaws.com' in flow.request.pretty_host or 'kiro.dev' in flow.request.pretty_host:
                 if DEBUG_MODE_ENABLED:
                     print(f"\n{Fore.GREEN}{'='*60}")
@@ -1980,6 +2197,16 @@ if __name__ == "__main__":
             port = int(sys.argv[1])
         except ValueError:
             port = DEFAULT_PORT
+
+    # Set console window title
+    try:
+        if os.name == 'nt':
+            os.system(f'title {APP_TITLE}')  # Windows
+        else:
+            sys.stdout.write(f'\033]0;{APP_TITLE}\007')  # Unix xterm
+            sys.stdout.flush()
+    except Exception:
+        pass
 
     print(f"\n{Fore.CYAN}{'='*60}")
     print(f"{Style.BRIGHT}KiroPipe - Unified Launcher{Style.RESET_ALL}")

@@ -7,26 +7,21 @@ proxy:
   port: 29974
 
 debug:
-  debug_mode_enabled: true
+  debug_mode_enabled: false
   store_interaction_blocks: false
 
 # ─── Kiro endpoint behaviour ─────────────────────────────────────────────────
 kiro_endpoint:
-  # Allow OTel telemetry (/v1/metrics, /v1/traces) when on Kiro passthrough models.
-  # Adaptive: automatically blocked when a custom model is active.
   telemetry: true
   updates: false
   models: true                                              # Allow Kiro's own passthrough models
   force_toggle_usage_limits: null               # null = block for custom, allow for passthrough | true = always allow  |  false = always block
-  auth_fake_login: true                    # Intercept /oauth/token and /logout — lets Kiro run without a registered account
+  auth_fake_login: false                    # Intercept /oauth/token and /logout — lets Kiro run without a registered account
   start_blocking: false                     # Start with block_aws_traffic=True, typically only blocks as toggle when custom model is used
-  strict_whitelist: false                    # Block any amazonaws.com / kiro.dev path not explicitly handled by kiropipe (buggy in passthrough)
-  
-  # Block /v1/metrics and /v1/traces even when Kiro passthrough models are in use.
-  # When false (default): these are blocked adaptively (only when custom model active).
-  block_telemetry_always: false
-  
-  
+  strict_whitelist: false                    # Block any amazonaws.com / kiro.dev path not explicitly handled by kiropipe
+  block_telemetry_always: false              # Block /v1/metrics + /v1/traces even when Kiro passthrough models are in use
+
+
 # ─── Completions (inline autocomplete) ───────────────────────────────────────
 # null          → block when custom model active, passthrough to AWS for Kiro (default)
 # 'passthrough' → always forward to AWS regardless of model
@@ -64,7 +59,6 @@ providers:
         max_tokens: 4096
         context_window: 200000
 
-  # Local/custom OpenAI-compatible proxy
   cliproxyapi:
     enabled: true
     type: openai
@@ -99,7 +93,6 @@ providers:
         description: "via CliProxyAPI (oAuth)"
         max_tokens: 4096
 
-  # OpenRouter
   openrouter:
     enabled: true
     type: openai
@@ -128,7 +121,6 @@ providers:
         description: "via OpenRouter (free)"
         max_tokens: 4096
 
-  # OpenAI direct API
   openai:
     enabled: false
     type: openai
@@ -146,7 +138,6 @@ providers:
         max_tokens: 4096
         context_window: 128000
 
-  # LiteLLM universal interface
   litellm:
     enabled: false
     type: litellm
@@ -178,3 +169,10 @@ providers:
           max_tokens: 4096
           context_window: 131072
 
+
+# ─── Web search tool ─────────────────────────────────────────────────────────
+web_search: default
+
+# null / 'default'  → keep AWS web_search entirely unchanged
+# 'aws-enforce'     → keep AWS definition and execution; inject even when blocked
+# dict              → partial override; any field set to null keeps AWS's value || FIELDS: name, description, inputSchema
