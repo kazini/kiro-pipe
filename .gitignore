@@ -2,6 +2,6 @@
 **/__pycache__/
 **/debug_logs/
 _kiropipe/kiropipe_config.yaml
-**kiropipe_config.yaml
 **/kiropipe_config.yaml
-*/kiropipe_config.yaml
+**/*.lnk
+*.cmd

@@ -1,32 +1,42 @@
 # KiroPipe Configuration
-# Copy this file to kiropipe_config.yaml and customize
+
+kiro:
+  exe_path: "C:\\Users\\Kazini\\Vault\\Programas\\Coding\\coding tools\\Kiro\\kiro.exe"
 
 proxy:
   port: 29974
-
-kiro:
-  exe_path: null  # Path to Kiro.exe (null = auto-detect)
-
-# TRUE = allow, FALSE = block
-kiro_endpoint:
-  telemetry: false
-  updates: false
-  models: true
-  force_toggle_usage_limits: null  # null=auto, true=always allow, false=always block
 
 debug:
   debug_mode_enabled: false
   store_interaction_blocks: false
 
-# ============================================================
-# MODEL PROVIDERS
-# ============================================================
-# Each provider MUST have an api_base (custom endpoint support)
-# This allows using proxies, custom deployments, or compatible APIs
+# ─── Kiro endpoint behaviour ─────────────────────────────────────────────────
+kiro_endpoint:
+  telemetry: true
+  updates: false
+  models: true                                              # Allow Kiro's own passthrough models
+  force_toggle_usage_limits: null               # null = block for custom, allow for passthrough | true = always allow  |  false = always block
+  auth_fake_login: false                    # Intercept /oauth/token and /logout — lets Kiro run without a registered account
+  start_blocking: false                     # Start with block_aws_traffic=True, typically only blocks as toggle when custom model is used
+  strict_whitelist: false                    # Block any amazonaws.com / kiro.dev path not explicitly handled by kiropipe
+  block_telemetry_always: false              # Block /v1/metrics + /v1/traces even when Kiro passthrough models are in use
 
+
+# ─── Completions (inline autocomplete) ───────────────────────────────────────
+# null          → block when custom model active, passthrough to AWS for Kiro (default)
+# 'passthrough' → always forward to AWS regardless of model
+# 'current'     → use the last active custom model's provider
+# '<model_name>'→ always use that specific configured model (e.g. 'qwen-flash')
+completions: null
+
+
+# ─── Default model ────────────────────────────────────────────────────────────
+default_model: "kiro-default"
+
+# ─── Providers ───────────────────────────────────────────────────────────────
 providers:
-  # Kiro's default AWS Q models (passthrough)
-  # Note: Passthrough type ignores api_base - uses native Kiro connection
+
+  # Kiro's built-in AWS Q models (passthrough)
   kiro:
     enabled: true
     type: passthrough
@@ -35,134 +45,134 @@ providers:
       - name: "kiro-default"
         alias: ["kiro", "default", "aws-q"]
         description: "Kiro's default model"
-  
-  # Anthropic Claude (PRIMARY SUPPORTED MODE)
-  # api_base: Custom endpoint (e.g., proxy, custom deployment)
+
   anthropic:
     enabled: false
     type: anthropic
-    api_base: "https://api.anthropic.com"
-    api_key: null  # Or set ANTHROPIC_API_KEY environment variable
-    description: "Anthropic Claude models"
+    api_base: "https://api.anthropic.com/v1"
+    api_key: null
     models:
-      - name: "claude-3-5-sonnet-20241022"
-        display_name: "Claude 3.5 Sonnet"
-        alias: ["claude", "sonnet"]
-        description: "Claude 3.5 Sonnet - Best quality"
+      - name: "claude-haiku-4-5-20251001"
+        display_name: "Claude 4.5 Haiku"
+        alias: ["claude-haiku"]
+        description: "Claude 4.5 Haiku - Fast and efficient"
         max_tokens: 4096
-      
-      - name: "claude-3-5-haiku-20241022"
-        display_name: "Claude 3.5 Haiku"
-        alias: ["haiku"]
-        description: "Claude 3.5 Haiku - Fast and efficient"
+        context_window: 200000
+
+  cliproxyapi:
+    enabled: true
+    type: openai
+    api_base: "http://localhost:8317/v1"
+    api_key: null
+    description: "..."
+    models:
+      - name: "qwen-flash"
+        display_name: "Qwen Flash"
+        description: "via CliProxyAPI (oAuth)"
+      - name: "qwen-plus"
+        display_name: "Qwen Plus"
+        description: "via CliProxyAPI (oAuth)"
         max_tokens: 4096
-  
-  # LiteLLM (universal interface - converts formats automatically)
-  # Each sub-provider has its own api_base for custom endpoints
+      - name: "gemini-3-pro"
+        display_name: "Gemini 3 Pro"
+        description: "via CliProxyAPI (oAuth)"
+        max_tokens: 4096
+      - name: "gemini-3-flash"
+        display_name: "Gemini 3 Flash"
+        alias: ["gemini-3-flash"]
+        description: "via CliProxyAPI (oAuth)"
+        max_tokens: 4096
+      - name: "gemini-2.5-pro"
+        display_name: "Gemini 2.5 Pro"
+        alias: ["gemini-2.5-pro"]
+        description: "via CliProxyAPI (oAuth)"
+        max_tokens: 4096
+      - name: "gemini-2.5-flash"
+        display_name: "Gemini 2.5 Flash"
+        alias: ["gemini-2.5-flash"]
+        description: "via CliProxyAPI (oAuth)"
+        max_tokens: 4096
+
+  openrouter:
+    enabled: true
+    type: openai
+    api_base: "https://openrouter.ai/api/v1"
+    api_key: null
+    description: "OpenRouter models."
+    models:
+      - name: "minimax/minimax-m2.5:free"
+        display_name: "MiniMax M2.5"
+        alias: ["minimax-m2.5"]
+        description: "via OpenRouter (free)"
+        max_tokens: 4096
+      - name: "qwen/qwen3-coder:free"
+        display_name: "Qwen3 Coder 480b"
+        alias: ["qwen-coder-480b"]
+        description: "via OpenRouter (free)"
+        max_tokens: 4096
+      - name: "openai/gpt-oss-120b:free"
+        display_name: "GPT OSS 120b"
+        alias: ["gpt-oss-120b"]
+        description: "via OpenRouter (free)"
+        max_tokens: 4096
+      - name: "nvidia/nemotron-3-super-120b-a12b:free"
+        display_name: "Nemotron 3s"
+        alias: ["nemotron-3s"]
+        description: "via OpenRouter (free)"
+        max_tokens: 4096
+
+  openai:
+    enabled: false
+    type: openai
+    api_base: "https://api.openai.com/v1"
+    api_key: null
+    models:
+      - name: "gpt-4-turbo"
+        display_name: "GPT-4 Turbo"
+        alias: ["gpt4-turbo"]
+        max_tokens: 4096
+        context_window: 128000
+      - name: "gpt-4o"
+        display_name: "GPT-4o"
+        alias: ["gpt4o"]
+        max_tokens: 4096
+        context_window: 128000
+
   litellm:
     enabled: false
     type: litellm
-    description: "Universal LLM interface"
-    
-    # Ollama (local, free)
-    ollama:
-      api_base: "http://localhost:11434"
-      api_key: null  # Not needed for Ollama
-      models:
-        - name: "ollama/llama3.2"
-          alias: ["llama"]
-          description: "Llama 3.2 - Fast local model"
-          max_tokens: 4096
-        
-        - name: "ollama/qwen2.5-coder:7b"
-          alias: ["qwen", "coder"]
-          description: "Qwen 2.5 Coder - Best for coding"
-          max_tokens: 4096
-    
-    # Groq (cloud, free - 14,400 req/day)
     groq:
       api_base: "https://api.groq.com/openai/v1"
-      api_key: null  # Get free key at https://groq.com
+      api_key: null
       models:
         - name: "groq/llama-3.1-70b-versatile"
-          alias: ["groq"]
-          description: "Groq Llama 3.1 70B - Very fast"
+          display_name: "Llama 3.1 70B (Groq)"
+          alias: ["groq", "llama-groq"]
           max_tokens: 4096
-    
-    # OpenAI or OpenAI-compatible APIs
-    # Examples:
-    # - OpenAI: "https://api.openai.com/v1"
-    # - OpenRouter: "https://openrouter.ai/api/v1"
-    # - Together AI: "https://api.together.xyz/v1"
-    # - Any OpenAI-compatible endpoint
+          context_window: 131072
     openai:
       api_base: "https://api.openai.com/v1"
-      api_key: null  # Or set OPENAI_API_KEY
+      api_key: null
       models:
         - name: "openai/gpt-4"
+          display_name: "GPT-4 (via LiteLLM)"
           alias: ["gpt4"]
-          description: "GPT-4 via OpenAI"
           max_tokens: 4096
-    
-    # OpenRouter example (OpenAI-compatible)
-    openrouter:
-      api_base: "https://openrouter.ai/api/v1"
-      api_key: null  # Get key at https://openrouter.ai
+          context_window: 128000
+    ollama:
+      api_base: "http://localhost:11434"
+      api_key: null
       models:
-        - name: "openai/gpt-4-turbo"  # Use OpenAI format with OpenRouter
-          alias: ["openrouter", "or-gpt4"]
-          description: "GPT-4 Turbo via OpenRouter"
+        - name: "ollama/llama3.2"
+          display_name: "Llama 3.2 (Local)"
+          alias: ["llama", "local"]
           max_tokens: 4096
+          context_window: 131072
 
-default_model: "kiro-default"
 
-# ============================================================
-# CUSTOM ENDPOINT EXAMPLES
-# ============================================================
+# ─── Web search tool ─────────────────────────────────────────────────────────
+web_search: default
 
-# Example 1: Use OpenRouter with OpenAI format
-# litellm:
-#   enabled: true
-#   openrouter:
-#     api_base: "https://openrouter.ai/api/v1"
-#     api_key: "your-openrouter-key"
-#     models:
-#       - name: "openai/gpt-4-turbo"
-#         alias: ["or"]
-# default_model: "or"
-
-# Example 2: Use local Ollama
-# litellm:
-#   enabled: true
-#   ollama:
-#     api_base: "http://localhost:11434"
-#     models:
-#       - name: "ollama/llama3.2"
-#         alias: ["llama"]
-# default_model: "llama"
-
-# Example 3: Use Anthropic via custom proxy
-# anthropic:
-#   enabled: true
-#   api_base: "https://your-proxy.com/anthropic"
-#   api_key: "your-key"
-#   models:
-#     - name: "claude-3-5-sonnet-20241022"
-#       alias: ["claude"]
-# default_model: "claude"
-
-# ============================================================
-# LITELLM FORMAT CONVERSION
-# ============================================================
-# LiteLLM automatically converts between API formats!
-# The bridge uses Anthropic format, but LiteLLM converts to:
-# - OpenAI: Use "openai/gpt-4"
-# - Ollama: Use "ollama/llama3.2"
-# - Groq: Use "groq/llama-3.1-70b-versatile"
-# - 100+ other providers
-#
-# ONE bridge implementation supports ALL providers!
-#
-# Custom endpoints work with any OpenAI-compatible API:
-# - OpenRouter, Together AI, Perplexity, etc.
-# - Just set api_base to their endpoint URL
+# null / 'default'  → keep AWS web_search entirely unchanged
+# 'aws-enforce'     → keep AWS definition and execution; inject even when blocked
+# dict              → partial override; any field set to null keeps AWS's value || FIELDS: name, description, inputSchema

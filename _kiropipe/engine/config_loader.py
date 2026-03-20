@@ -36,6 +36,16 @@ DEFAULT_CONFIG = {
         'block_telemetry_always': False,  # Block /v1/metrics+/v1/traces even on passthrough
         'strict_whitelist': False         # Block unhandled amazonaws/kiro.dev paths
     },
+    # web_search: controls the web_search MCP tool Kiro uses.
+    # null / 'default'  → keep AWS web_search entirely unchanged
+    # 'aws-enforce'     → keep AWS definition and execution; inject even when AWS is blocked
+    # dict              → partial override; any key set to null uses AWS's value.
+    #   name, description, inputSchema: override definition fields (null = keep AWS value)
+    #   execute: if present, intercept tools/call and route to custom backend
+    #     type: 'http'       → POST query to url, parse results array from response
+    #     type: 'mcp_server' → forward tools/call JSON-RPC to the server url
+    #     url, api_key
+    'web_search': None,
     # completions: flat value
     # None/'null'   → block when custom model active, passthrough for Kiro (default)
     # 'passthrough' → always forward to AWS
